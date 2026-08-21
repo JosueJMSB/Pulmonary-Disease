@@ -1,0 +1,78 @@
+# ---------------------------------------------------------------
+# Archivos comprimidos de los datasets originales
+# ---------------------------------------------------------------
+# Los .zip fuente NO se versionan: superan el limite de 100 MB por
+# archivo de GitHub y ademas son redundantes (Dataset1.zip contiene
+# los mismos 920 wav duplicados que ya estan extraidos en
+# Dataset1-ICBHI/audio/).
+# Copia original: Google Drive.
+
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# ---------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------
+# Jupyter / Colab
+# ---------------------------------------------------------------
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# ---------------------------------------------------------------
+# Secretos y configuracion local
+# ---------------------------------------------------------------
+.env
+.env.local
+*.key
+credentials.json
+
+# ---------------------------------------------------------------
+# Sistema operativo
+# ---------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ---------------------------------------------------------------
+# Editores / IDEs
+# ---------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+
+# ---------------------------------------------------------------
+# Salidas de experimentos (descomenta cuando empieces a entrenar)
+# ---------------------------------------------------------------
+# models/
+# checkpoints/
+# runs/
+# outputs/
+# *.h5
+# *.pt
+# *.pkl
+# *.npy
