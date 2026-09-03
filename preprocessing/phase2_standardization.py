@@ -422,7 +422,7 @@ def process_recording(row, manifest_row):
         expected_sha = str(manifest_row["file_sha256"])
         if expected_sha and expected_sha != "nan" and source_sha != expected_sha:
             raise ValueError(
-                f"SHA-256 de origen no coincide con phase1_manifest.csv "
+                f"SHA-256 de origen no coincide con el manifiesto de la fase 1 "
                 f"({source_sha[:12]}... vs {expected_sha[:12]}...)"
             )
 
@@ -655,9 +655,9 @@ def main():
 
     # Informes de validacion: se escriben siempre, pasen o no.
     design_df = pd.DataFrame(design_checks)
-    design_df.to_csv(cfg.REPORTS / "phase2_filter_design.csv", index=False)
-    tones_df.to_csv(cfg.REPORTS / "phase2_tone_response.csv", index=False)
-    real_df.to_csv(cfg.REPORTS / "phase2_spectral_check.csv", index=False)
+    design_df.to_csv(cfg.R2_FILTER_DESIGN, index=False)
+    tones_df.to_csv(cfg.R2_TONE_RESPONSE, index=False)
+    real_df.to_csv(cfg.R2_SPECTRAL_CHECK, index=False)
 
     summary = pd.DataFrame([{
         "verdict": "PASS" if verdict_ok else "FAIL",
@@ -675,19 +675,19 @@ def main():
         "antialias_passband_tol_db": cfg.ANTIALIAS_PASSBAND_TOL_DB,
         "scipy_version": scipy.__version__,
     }])
-    summary.to_csv(cfg.REPORTS / "phase2_validation_summary.csv", index=False)
+    summary.to_csv(cfg.R2_SUMMARY, index=False)
 
     if not verdict_ok:
-        report.to_csv(cfg.REPORTS / "resampling_attempt_failed.csv", index=False)
+        report.to_csv(cfg.R2_FAILED_ATTEMPT, index=False)
         u.section("FASE 2 - VALIDACION FALLIDA, NO SE REEMPLAZA LA SALIDA")
         print(f"  La salida anterior en {cfg.RESAMPLED.relative_to(cfg.ROOT)} permanece intacta.")
-        print(f"  Intento fallido registrado en reports/resampling_attempt_failed.csv")
-        print(f"  Detalle de la causa en reports/phase2_validation_summary.csv")
+        print(f"  Intento fallido registrado en {cfg.R2_FAILED_ATTEMPT.relative_to(cfg.ROOT)}")
+        print(f"  Detalle de la causa en {cfg.R2_SUMMARY.relative_to(cfg.ROOT)}")
         return {"report": report, "verdict": "FAIL", "summary": summary}
 
     swap_staging_into_place()
-    report.to_csv(cfg.REPORTS / "resampling.csv", index=False)
-    stale = cfg.REPORTS / "resampling_attempt_failed.csv"
+    report.to_csv(cfg.R2_RESAMPLING, index=False)
+    stale = cfg.R2_FAILED_ATTEMPT
     if stale.exists():
         stale.unlink()
 

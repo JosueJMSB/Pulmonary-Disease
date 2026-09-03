@@ -40,18 +40,18 @@ FASE 4 · Estandarización temporal
 
 | Etapa del documento | Archivo | Salida |
 |---|---|---|
-| 1a · Integridad de los datos | `phase1_verification.py` | `reports/integrity.csv` |
-| 1b · Validación de anotaciones | `phase1_verification.py` | `reports/icbhi_respiratory_cycles_regenerated.csv`, `reports/icbhi_cycle_summary_regenerated.csv`, `reports/annotation_validation.csv` |
-| 1c · Calidad de señal | `phase1_verification.py` | `reports/signal_quality.csv` |
-| 1d · Duplicados binarios | `phase1_verification.py` | `reports/duplicate_audio_report.csv` |
-| 1e · Validación de metadata | `phase1_verification.py` | `reports/metadata_validation.csv`, `reports/phase1_manifest.csv` |
-| 2a · Filtro anti-aliasing | `phase2_standardization.py` | `reports/phase2_filter_design.csv`, `reports/phase2_tone_response.csv`, `reports/phase2_spectral_check.csv` |
-| 2b · Estandarización de frecuencia | `phase2_standardization.py` | `data/interim/resampled/`, `reports/resampling.csv`, `reports/phase2_validation_summary.csv` |
+| 1a · Integridad de los datos | `phase1_verification.py` | `reports/phase1/1a_integrity.csv` |
+| 1b · Validación de anotaciones | `phase1_verification.py` | `reports/phase1/1b_cycles_regenerated.csv`, `1b_cycle_summary_regenerated.csv`, `1b_annotation_validation.csv` |
+| 1c · Calidad de señal | `phase1_verification.py` | `reports/phase1/1c_signal_quality.csv` |
+| 1d · Duplicados binarios | `phase1_verification.py` | `reports/phase1/1d_duplicates.csv` |
+| 1e · Validación de metadata | `phase1_verification.py` | `reports/phase1/1e_metadata_validation.csv`, `reports/phase1/manifest.csv` |
+| 2a · Filtro anti-aliasing | `phase2_standardization.py` | `reports/phase2/2a_filter_design.csv`, `2a_tone_response.csv`, `2a_spectral_check.csv` |
+| 2b · Estandarización de frecuencia | `phase2_standardization.py` | `data/interim/resampled/`, `reports/phase2/2b_resampling.csv`, `validation_summary.csv` |
 | 3a · Filtrado pasa-banda | `phase3_cleaning.py` | — |
-| 3b · Denoising | `phase3_cleaning.py` | `reports/denoising_metrics.csv` |
+| 3b · Denoising | `phase3_cleaning.py` | `reports/phase3/3b_denoising_metrics.csv` |
 | 3c · Normalización de amplitud | `phase3_cleaning.py` | `data/interim/clean_no_dn/`, `clean_dn/` |
 | 4a · Segmentación | `phase4_temporal.py` | `data/final/segments_*.npy`, `segments.csv` |
-| 4b · Estandarización de duración | `phase4_temporal.py` | `reports/window_length.csv` |
+| 4b · Estandarización de duración | `phase4_temporal.py` | `reports/phase4/4b_window_length.csv` |
 
 ---
 
@@ -67,23 +67,24 @@ preprocessing/
 ├── phase4_temporal.py           Pendiente de implementación
 ├── run_pipeline.py              Orquestador pendiente
 │
-├── reports/                     VERSIONADO
-│   ├── integrity.csv
-│   ├── signal_quality.csv
-│   ├── annotation_validation.csv
-│   ├── icbhi_respiratory_cycles_regenerated.csv
-│   ├── icbhi_cycle_summary_regenerated.csv
-│   ├── duplicate_audio_report.csv
-│   ├── metadata_validation.csv
-│   ├── phase1_manifest.csv
-│   ├── resampling.csv
-│   ├── phase2_filter_design.csv
-│   ├── phase2_tone_response.csv
-│   ├── phase2_spectral_check.csv
-│   ├── phase2_validation_summary.csv
-│   ├── rms_distribution.csv
-│   ├── denoising_metrics.csv
-│   ├── window_length.csv
+├── reports/                     VERSIONADO · ver reports/README.md
+│   ├── README.md                Índice de todos los informes
+│   ├── phase1/
+│   │   ├── 1a_integrity.csv
+│   │   ├── 1b_annotation_validation.csv
+│   │   ├── 1b_cycles_regenerated.csv
+│   │   ├── 1b_cycle_summary_regenerated.csv
+│   │   ├── 1c_signal_quality.csv
+│   │   ├── 1d_duplicates.csv
+│   │   ├── 1e_metadata_validation.csv
+│   │   └── manifest.csv         Resultado contractual de la fase
+│   ├── phase2/
+│   │   ├── 2a_filter_design.csv
+│   │   ├── 2a_tone_response.csv
+│   │   ├── 2a_spectral_check.csv
+│   │   ├── 2b_resampling.csv
+│   │   └── validation_summary.csv
+│   ├── phase3/                  Pendiente
 │   └── figures/
 │
 └── data/                        NO VERSIONADO (salvo segments.csv)
@@ -108,7 +109,7 @@ sobre los datos originales. Ocupa unos 1.3 GB en total.
 
 `segments.csv` sí se versiona: es el registro de trazabilidad de lo que el pipeline produjo.
 
-`phase1_manifest.csv` contiene una fila por audio. `quality_status` usa `PASS`, `REVIEW`
+`reports/phase1/manifest.csv` contiene una fila por audio. `quality_status` usa `PASS`, `REVIEW`
 o `EXCLUDE`: una revisión no equivale a eliminar el archivo. `modeling_status` separa las
 copias redundantes o con etiquetas contradictorias de los defectos acústicos. La fase 2
 solo admite filas con calidad `PASS`/`REVIEW` y `modeling_status=ELIGIBLE`.
@@ -157,8 +158,8 @@ reales del corpus. Cada uno tiene una pasada de determinación que produce su in
 | Longitud y salto de la STFT | 3b | Equilibrio entre resolución espectral y temporal |
 | Percentil de estimación del ruido | 3b | Efecto sobre un subconjunto de validación |
 | Sobre-sustracción y suelo espectral | 3b | Aparición de ruido musical en el subconjunto |
-| RMS objetivo | 3c | `reports/rms_distribution.csv` |
-| Longitud de ventana | 4b | `reports/window_length.csv` |
+| RMS objetivo | 3c | `reports/phase3/3c_rms_distribution.csv` |
+| Longitud de ventana | 4b | `reports/phase4/4b_window_length.csv` |
 
 Todos residen en `config.py`, en un único lugar, de modo que las decisiones numéricas del
 pipeline sean auditables y el documento y el código no se desincronicen.
@@ -205,12 +206,12 @@ polifásica de `resample_poly`.
 
 La verificación combina tres métodos independientes, todos con reporte propio:
 
-1. **Diseño** (`phase2_filter_design.csv`) — respuesta en frecuencia de los coeficientes con
+1. **Diseño** (`phase2/2a_filter_design.csv`) — respuesta en frecuencia de los coeficientes con
    `freqz`, sin pasar audio.
-2. **Tonos puros** (`phase2_tone_response.csv`) — 18 pruebas (50, 100, 500, 1000, 1600,
+2. **Tonos puros** (`phase2/2a_tone_response.csv`) — 18 pruebas (50, 100, 500, 1000, 1600,
    1800, 2050, 2200 y 2500 Hz, por cada frecuencia de origen) que ejercitan la cadena
    completa de `resample_poly`, no solo los coeficientes.
-3. **Audio real estratificado** (`phase2_spectral_check.csv`) — los 6 audios de 10 kHz y 12
+3. **Audio real estratificado** (`phase2/2a_spectral_check.csv`) — los 6 audios de 10 kHz y 12
    por cada dispositivo a 44.1 kHz (36 en total), comparados banda a banda contra el
    original.
 
@@ -218,13 +219,13 @@ La verificación combina tres métodos independientes, todos con reporte propio:
 reemplaza `resampled/` si las tres verificaciones y los chequeos estructurales —conteo,
 ausencia de `NaN`/`Inf`, identidad exacta de los 419 archivos no transformados, cabeceras
 correctas— pasan todos. Si algo falla, la salida anterior permanece intacta, se escribe
-`reports/resampling_attempt_failed.csv` con el intento fallido, y el proceso termina con
+`reports/phase2/2b_resampling_attempt_failed.csv` con el intento fallido, y el proceso termina con
 código de salida distinto de cero. Esto evita el escenario de una reejecución interrumpida
 o con umbrales cambiados de la fase 1 dejando archivos huérfanos en `resampled/` que ya no
 corresponden a ninguna fila del manifiesto.
 
 Antes de procesar cada grabación se contrasta su SHA-256 contra el que registró la fase 1 en
-`phase1_manifest.csv`: si no coincide, el audio cambió entre fases y la grabación falla de
+`reports/phase1/manifest.csv`: si no coincide, el audio cambió entre fases y la grabación falla de
 forma explícita en vez de procesarse en silencio.
 
 ### Fase 3 · Filtrado de fase cero
@@ -286,7 +287,7 @@ en torno a 5; ninguna de las dos está implementada todavía.
 
 | Fase | Comprobación |
 |---|---|
-| 1 | `phase1_manifest.csv` tiene 1256 `audio_id` únicos; toda incidencia lleva estado y razón; los ciclos regenerados se comparan por contenido con los del repositorio; no existen valores infinitos de SNR |
+| 1 | `reports/phase1/manifest.csv` tiene 1256 `audio_id` únicos; toda incidencia lleva estado y razón; los ciclos regenerados se comparan por contenido con los del repositorio; no existen valores infinitos de SNR |
 | 2 | El FIR anti-aliasing cumple ≤0.1 dB de ondulación hasta 1800 Hz y ≥60 dB de atenuación desde 2000 Hz, verificado con `freqz`, con tonos puros y con audio real estratificado; los 419 archivos ya a 4 kHz conservan sus muestras exactas (`np.array_equal`); `resampling.csv` tiene 1249 `audio_id` únicos y ninguna fila `FAIL` |
 | 3 | `denoising_metrics.csv` contiene la SNR antes y después por grabación; el pasa-banda no desplaza temporalmente la señal |
 | 4 | Las filas de `segments.csv` coinciden con la primera dimensión de cada `.npy`; los tres modos de filtrado de un paciente de Fraiwan quedan siempre juntos |

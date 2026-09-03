@@ -11,7 +11,7 @@ cumplan condiciones minimas de calidad.
   1d  Duplicados binarios
   1e  Validacion contra las fuentes de metadata
 
-El resultado contractual es phase1_manifest.csv. Distingue la calidad
+El resultado contractual es reports/phase1/manifest.csv. Distingue la calidad
 acustica (PASS/REVIEW/EXCLUDE) de la elegibilidad para modelado, para no
 confundir una incidencia de procedencia o duplicacion con una senal defectuosa.
 
@@ -169,7 +169,7 @@ def step_1a_integrity(meta):
         for _, f in failures.head(10).iterrows():
             print(f"    {f['audio_id']}: {f['detail']}")
 
-    out = cfg.REPORTS / "integrity.csv"
+    out = cfg.R1_INTEGRITY
     complete_report = pd.concat(
         [report, pd.DataFrame(orphans, columns=report.columns)], ignore_index=True
     )
@@ -370,9 +370,9 @@ def step_1b_annotations(meta):
             "issue": "MISSING_COMMITTED_TABLE", "detail": str(cfg.ICBHI_CYCLE_SUMMARY),
         })
 
-    out_cycles = cfg.REPORTS / "icbhi_respiratory_cycles_regenerated.csv"
-    out_summary = cfg.REPORTS / "icbhi_cycle_summary_regenerated.csv"
-    out_validation = cfg.REPORTS / "annotation_validation.csv"
+    out_cycles = cfg.R1_CYCLES
+    out_summary = cfg.R1_CYCLE_SUMMARY
+    out_validation = cfg.R1_ANNOTATION_VALIDATION
     cycles_df.to_csv(out_cycles, index=False)
     summary_df.to_csv(out_summary, index=False)
     validation = pd.DataFrame(
@@ -612,7 +612,7 @@ def step_1c_signal_quality(meta):
     report_saturation_by_diagnosis(quality)
     report_threshold_candidates(quality)
 
-    out = cfg.REPORTS / "signal_quality.csv"
+    out = cfg.R1_SIGNAL_QUALITY
     quality.to_csv(out, index=False)
     print(f"\n  -> {out.relative_to(cfg.ROOT)}")
 
@@ -725,7 +725,7 @@ def step_1d_duplicates(quality):
         "action", "modeling_status", "reason",
     ]
     report = pd.DataFrame(rows, columns=columns)
-    out = cfg.REPORTS / "duplicate_audio_report.csv"
+    out = cfg.R1_DUPLICATES
     report.to_csv(out, index=False)
     print(f"  Grupos duplicados         : {len(duplicate_hashes)}")
     print(f"  Archivos implicados       : {len(report)}")
@@ -816,7 +816,7 @@ def step_1e_metadata_sources(meta):
         "source_value", "source_reference", "issue",
     ]
     report = pd.DataFrame(issues, columns=columns)
-    out = cfg.REPORTS / "metadata_validation.csv"
+    out = cfg.R1_METADATA_VALIDATION
     report.to_csv(out, index=False)
     print(f"  Registros contrastados    : {len(meta)}")
     print(f"  Incidencias               : {len(report)}")

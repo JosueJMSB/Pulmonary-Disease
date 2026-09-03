@@ -26,8 +26,6 @@ ICBHI_ANNOTATIONS = ICBHI_DIR / "annotations"
 FRAIWAN_SOURCE_XLSX = FRAIWAN_DIR / "metadata" / "Data annotation.xlsx"
 
 PREPROC = ROOT / "preprocessing"
-REPORTS = PREPROC / "reports"
-FIGURES = REPORTS / "figures"
 
 DATA = PREPROC / "data"
 INTERIM = DATA / "interim"
@@ -36,12 +34,46 @@ CLEAN_NO_DN = INTERIM / "clean_no_dn"
 CLEAN_DN = INTERIM / "clean_dn"
 FINAL = DATA / "final"
 
-PHASE1_MANIFEST = REPORTS / "phase1_manifest.csv"
-
 DATASETS = (
     ("ICBHI", ICBHI_DIR, ICBHI_META),
     ("FRAIWAN", FRAIWAN_DIR, FRAIWAN_META),
 )
+
+# ---------------------------------------------------------------------------
+# Informes
+# ---------------------------------------------------------------------------
+#
+# Se agrupan por fase, y dentro de cada carpeta el prefijo numerico indica la
+# etapa que los produce, de modo que el listado ordenado del directorio refleja
+# el orden de ejecucion. Los informes sin prefijo no pertenecen a una sola
+# etapa: resumen la fase completa.
+#
+# Todas las rutas viven aqui y no como literales dispersos en los modulos de
+# fase: renombrar un informe debe ser un cambio en un solo lugar.
+
+REPORTS = PREPROC / "reports"
+REPORTS_P1 = REPORTS / "phase1"
+REPORTS_P2 = REPORTS / "phase2"
+REPORTS_P3 = REPORTS / "phase3"
+FIGURES = REPORTS / "figures"
+
+# Fase 1 - Verificacion de datos
+R1_INTEGRITY = REPORTS_P1 / "1a_integrity.csv"
+R1_ANNOTATION_VALIDATION = REPORTS_P1 / "1b_annotation_validation.csv"
+R1_CYCLES = REPORTS_P1 / "1b_cycles_regenerated.csv"
+R1_CYCLE_SUMMARY = REPORTS_P1 / "1b_cycle_summary_regenerated.csv"
+R1_SIGNAL_QUALITY = REPORTS_P1 / "1c_signal_quality.csv"
+R1_DUPLICATES = REPORTS_P1 / "1d_duplicates.csv"
+R1_METADATA_VALIDATION = REPORTS_P1 / "1e_metadata_validation.csv"
+PHASE1_MANIFEST = REPORTS_P1 / "manifest.csv"
+
+# Fase 2 - Estandarizacion de la senal
+R2_FILTER_DESIGN = REPORTS_P2 / "2a_filter_design.csv"
+R2_TONE_RESPONSE = REPORTS_P2 / "2a_tone_response.csv"
+R2_SPECTRAL_CHECK = REPORTS_P2 / "2a_spectral_check.csv"
+R2_RESAMPLING = REPORTS_P2 / "2b_resampling.csv"
+R2_FAILED_ATTEMPT = REPORTS_P2 / "2b_resampling_attempt_failed.csv"
+R2_SUMMARY = REPORTS_P2 / "validation_summary.csv"
 
 # ---------------------------------------------------------------------------
 # Fase 1c - Calidad de senal
@@ -157,7 +189,8 @@ SEGMENT_CANDIDATES = (2.0, 3.0, 4.0, 5.0, 6.0, 8.0)
 
 def ensure_dirs():
     """Crea los directorios de salida si no existen."""
-    for d in (REPORTS, FIGURES, RESAMPLED, CLEAN_NO_DN, CLEAN_DN, FINAL):
+    for d in (REPORTS, REPORTS_P1, REPORTS_P2, REPORTS_P3, FIGURES,
+              RESAMPLED, CLEAN_NO_DN, CLEAN_DN, FINAL):
         d.mkdir(parents=True, exist_ok=True)
 
 
