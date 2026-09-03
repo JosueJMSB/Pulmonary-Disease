@@ -1,0 +1,3 @@
+source_sr,up,down,fs_design_hz,numtaps,beta,passband_ripple_db,stopband_min_attenuation_db,passband_ok,stopband_ok
+10000,2,5,20000,399,6.2043,0.00904,64.628,True,True
+44100,40,441,1764000,35049,6.2043,0.00932,64.969,True,True

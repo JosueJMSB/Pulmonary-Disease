@@ -1,0 +1,2 @@
+verdict,n_expected,n_processed,n_ok,n_fail,design_ok,tones_ok,real_audio_ok,structural_ok,untouched_total,untouched_mismatches,header_mismatches,target_sr,antialias_passband_hz,antialias_stopband_hz,antialias_min_attenuation_db,antialias_passband_tol_db,scipy_version
+PASS,1249,1249,1249,0,True,True,True,True,419,0,0,4000,1800,2000,60,0.1,1.18.1

@@ -5,12 +5,15 @@ Agrupa la lectura de audio, los indicadores de calidad de senal y la carga de la
 metadata unificada de ambos corpus.
 """
 
+import hashlib
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import soundfile as sf
+from scipy.signal import butter, sosfiltfilt
 
 import config as cfg
 
@@ -26,21 +29,51 @@ def load_metadata():
     "101" o "F001"; las conversiones numericas se hacen donde se necesitan.
     Anade dos columnas: la raiz del dataset y la ruta absoluta del audio.
     """
+    required = {
+        "dataset", "audio_id", "patient_uid", "diagnosis", "device",
+        "zone", "audio_path", "sample_rate_hz", "channels",
+        "duration_seconds", "bit_depth",
+    }
     frames = []
     for name, root, meta_path in cfg.DATASETS:
         df = pd.read_csv(meta_path, dtype=str, keep_default_na=False)
+        missing = sorted(required - set(df.columns))
+        if missing:
+            raise ValueError(
+                f"Metadata incompleta en {meta_path}: faltan {', '.join(missing)}"
+            )
+        if not (df["dataset"] == name).all():
+            wrong = sorted(df.loc[df["dataset"] != name, "dataset"].unique())
+            raise ValueError(
+                f"La columna dataset de {meta_path} contiene valores inesperados: {wrong}"
+            )
         df["dataset_root"] = str(root)
-        df["abs_path"] = [str(root / p) for p in df["audio_path"]]
+        df["abs_path"] = [str(root / Path(p)) for p in df["audio_path"]]
         frames.append(df)
-    return pd.concat(frames, ignore_index=True)
+    metadata = pd.concat(frames, ignore_index=True)
+    duplicated_ids = metadata.loc[
+        metadata["audio_id"].duplicated(keep=False), "audio_id"
+    ].unique()
+    if len(duplicated_ids):
+        raise ValueError(f"audio_id duplicados en la metadata: {duplicated_ids[:10].tolist()}")
+    duplicated_paths = metadata.loc[
+        metadata["abs_path"].duplicated(keep=False), "abs_path"
+    ].unique()
+    if len(duplicated_paths):
+        raise ValueError(f"Rutas duplicadas en la metadata: {duplicated_paths[:10].tolist()}")
+    return metadata
 
 
 def annotation_path(row):
     """Ruta del .txt de anotacion correspondiente a una grabacion de ICBHI."""
     if row["dataset"] != "ICBHI":
         return None
-    rel = row["audio_path"].replace("audio/", "annotations/", 1)
-    return cfg.ICBHI_DIR / (rel[:-4] + ".txt")
+    audio_rel = Path(row["audio_path"])
+    try:
+        inside_audio = audio_rel.relative_to("audio")
+    except ValueError as exc:
+        raise ValueError(f"Ruta ICBHI fuera de audio/: {audio_rel}") from exc
+    return cfg.ICBHI_ANNOTATIONS / inside_audio.with_suffix(".txt")
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +106,30 @@ def rms(x):
     return float(np.sqrt(np.mean(x ** 2))) if x.size else 0.0
 
 
-def saturation_stats(x, level=None, run_min=None):
+def rms_without_dc(x):
+    """Valor eficaz tras retirar la componente continua."""
+    if not x.size:
+        return 0.0
+    centered = x - np.mean(x)
+    return float(np.sqrt(np.mean(centered ** 2)))
+
+
+def _runs(mask):
+    """Longitudes de las rachas verdaderas de una mascara booleana."""
+    mask = np.asarray(mask, dtype=bool)
+    if not mask.size or not mask.any():
+        return np.empty(0, dtype=np.int64)
+    edges = np.diff(mask.astype(np.int8))
+    starts = np.flatnonzero(edges == 1) + 1
+    ends = np.flatnonzero(edges == -1) + 1
+    if mask[0]:
+        starts = np.concatenate(([0], starts))
+    if mask[-1]:
+        ends = np.concatenate((ends, [mask.size]))
+    return ends - starts
+
+
+def saturation_stats(x, sr, level=None, run_ms=None):
     """Porcentaje de muestras en rachas de saturacion y numero de rachas.
 
     Una muestra aislada en fondo de escala puede ser casualidad; la saturacion
@@ -82,27 +138,37 @@ def saturation_stats(x, level=None, run_min=None):
     longitud minima.
     """
     level = cfg.SATURATION_LEVEL if level is None else level
-    run_min = cfg.SATURATION_RUN_MIN if run_min is None else run_min
+    run_ms = cfg.SATURATION_RUN_MS if run_ms is None else run_ms
+    run_min = max(1, int(round(sr * run_ms / 1000.0)))
 
     if x.size == 0:
         return 0.0, 0
 
-    mask = np.abs(x) >= level
-    if not mask.any():
-        return 0.0, 0
-
-    edges = np.diff(mask.astype(np.int8))
-    starts = np.flatnonzero(edges == 1) + 1
-    ends = np.flatnonzero(edges == -1) + 1
-    if mask[0]:
-        starts = np.concatenate(([0], starts))
-    if mask[-1]:
-        ends = np.concatenate((ends, [mask.size]))
-
-    lengths = ends - starts
+    lengths = _runs(np.abs(x) >= level)
     long_enough = lengths >= run_min
     n_saturated = int(lengths[long_enough].sum())
     return 100.0 * n_saturated / x.size, int(long_enough.sum())
+
+
+def digital_silence_stats(x):
+    """Porcentaje de ceros exactos y longitud de la racha mas larga."""
+    if not x.size:
+        return 0.0, 0
+    lengths = _runs(x == 0.0)
+    longest = int(lengths.max()) if lengths.size else 0
+    return 100.0 * float(np.count_nonzero(x == 0.0)) / x.size, longest
+
+
+def file_sha256(path, chunk_size=1024 * 1024):
+    """SHA-256 del archivo para detectar copias binarias exactas."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def frame_energy(x, sr, frame_ms=None):
@@ -131,13 +197,47 @@ def estimate_snr_db(x, sr, frame_ms=None, low_pct=None, high_pct=None):
 
     energies = frame_energy(x, sr, frame_ms)
     if energies.size == 0:
-        return float("nan")
+        return float("nan"), "NO_FRAMES"
+    if not np.isfinite(energies).all():
+        return float("nan"), "NON_FINITE"
 
     low = float(np.percentile(energies, low_pct))
     high = float(np.percentile(energies, high_pct))
-    if low <= 0:
-        return float("inf") if high > 0 else float("nan")
-    return 10.0 * np.log10(high / low)
+    # Un tramo de ceros puede adquirir residuos del orden de 1e-33 por el
+    # filtrado en fase cero. Tratarlo como ruido real produciria SNR absurdas
+    # de cientos de dB; por debajo de la precision numerica se declara que el
+    # suelo de ruido no es estimable.
+    numerical_floor = np.finfo(np.float64).eps * max(high, 1.0)
+    if low <= numerical_floor:
+        return float("nan"), "UNESTIMABLE"
+    if high <= 0:
+        return float("nan"), "UNESTIMABLE"
+    return float(10.0 * np.log10(high / low)), "OK"
+
+
+def snr_proxy_db(x, sr, band=None):
+    """Proxy de SNR calculado en la banda comun, sin modificar el audio.
+
+    Se retira DC, se aplica un Butterworth de cuarto orden en fase cero y se
+    estima la relacion entre percentiles de energia. El estado explica por que
+    un valor no pudo medirse; nunca se devuelve infinito.
+    """
+    band = cfg.SNR_BAND if band is None else band
+    if not x.size:
+        return float("nan"), "EMPTY_SIGNAL"
+    if not np.isfinite(x).all():
+        return float("nan"), "NON_FINITE"
+    low, high = band
+    nyquist = sr / 2.0
+    if low <= 0 or high >= nyquist or low >= high:
+        return float("nan"), "INVALID_BAND"
+    centered = x - np.mean(x)
+    try:
+        sos = butter(4, [low, high], btype="bandpass", fs=sr, output="sos")
+        filtered = sosfiltfilt(sos, centered)
+    except (ValueError, FloatingPointError):
+        return float("nan"), "FILTER_FAILED"
+    return estimate_snr_db(filtered, sr)
 
 
 def dc_offset(x):

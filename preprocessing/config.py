@@ -1,10 +1,8 @@
-"""
-Parametros del pipeline de preprocesamiento.
+"""Parametros versionados del pipeline de preprocesamiento.
 
-Todos los valores numericos que gobiernan el pipeline residen en este archivo.
-Los que aparecen como None son los que el documento declara "a determinar tras
-observar la distribucion real"; permanecen sin fijar hasta que la fase 1 los
-mida, y mientras tanto ninguna grabacion es excluida.
+La fase 1 distingue entre fallos objetivos (EXCLUDE) e indicadores acusticos
+que requieren revision (REVIEW). Ninguna de estas decisiones borra o modifica
+los audios originales.
 """
 
 from pathlib import Path
@@ -22,7 +20,10 @@ FRAIWAN_DIR = RAW / "Dataset2_Mendeley"
 ICBHI_META = ICBHI_DIR / "metadata" / "icbhi_audio_metadata.csv"
 FRAIWAN_META = FRAIWAN_DIR / "metadata" / "fraiwan_audio_metadata.csv"
 ICBHI_CYCLES = ICBHI_DIR / "metadata" / "icbhi_respiratory_cycles.csv"
+ICBHI_CYCLE_SUMMARY = ICBHI_DIR / "metadata" / "icbhi_cycle_summary.csv"
+ICBHI_DIAGNOSES = ICBHI_DIR / "metadata" / "patient_diagnosis.csv"
 ICBHI_ANNOTATIONS = ICBHI_DIR / "annotations"
+FRAIWAN_SOURCE_XLSX = FRAIWAN_DIR / "metadata" / "Data annotation.xlsx"
 
 PREPROC = ROOT / "preprocessing"
 REPORTS = PREPROC / "reports"
@@ -35,6 +36,8 @@ CLEAN_NO_DN = INTERIM / "clean_no_dn"
 CLEAN_DN = INTERIM / "clean_dn"
 FINAL = DATA / "final"
 
+PHASE1_MANIFEST = REPORTS / "phase1_manifest.csv"
+
 DATASETS = (
     ("ICBHI", ICBHI_DIR, ICBHI_META),
     ("FRAIWAN", FRAIWAN_DIR, FRAIWAN_META),
@@ -44,10 +47,10 @@ DATASETS = (
 # Fase 1c - Calidad de senal
 # ---------------------------------------------------------------------------
 
-# Una muestra suelta en fondo de escala puede ser casualidad; la saturacion se
-# caracteriza por muestras consecutivas, que son las que forman la meseta plana.
+# Una muestra suelta en fondo de escala puede ser casualidad. La racha minima se
+# expresa en tiempo para aplicar el mismo criterio a 4, 10 y 44.1 kHz.
 SATURATION_LEVEL = 0.9999      # fraccion del fondo de escala que cuenta como tope
-SATURATION_RUN_MIN = 3         # muestras consecutivas para considerarlo saturacion
+SATURATION_RUN_MS = 0.5        # duracion minima de una meseta de fondo de escala
 
 # Estimacion percentilica de la relacion senal-ruido. Las auscultaciones no
 # contienen un tramo de ruido puro delimitado, de modo que el suelo de ruido se
@@ -56,8 +59,18 @@ QUALITY_FRAME_MS = 64          # duracion de trama para la energia de corto plaz
 SNR_LOW_PCT = 10               # percentil que estima el suelo de ruido
 SNR_HIGH_PCT = 90              # percentil que estima el nivel de senal
 
-# Umbrales de admision. Se fijan tras observar las distribuciones que produce la
-# fase 1 sobre el conjunto completo. Mientras sean None no se excluye nada.
+# Banda comun usada solo para medir el proxy de SNR. La copia filtrada no se
+# escribe en disco y no sustituye el filtrado definitivo de la fase 3.
+COMMON_BAND_LOW = 50
+COMMON_BAND_HIGH = 1800
+SNR_BAND = (COMMON_BAND_LOW, COMMON_BAND_HIGH)
+
+# Porcentaje de muestras exactamente cero que requiere revision. Este criterio
+# detecta relleno digital; no pretende identificar pausas respiratorias normales.
+MAX_DIGITAL_SILENCE_PCT = 10.0
+
+# Umbrales de calidad. Saturacion y SNR generan REVIEW; los fallos objetivos
+# (archivo ilegible, muestras no finitas, senal vacia o plana) generan EXCLUDE.
 #
 # Observado en la primera ejecucion sobre las 1256 grabaciones:
 #
@@ -73,15 +86,15 @@ SNR_HIGH_PCT = 90              # percentil que estima el nivel de senal
 #
 #   Varianza    ningun archivo constante: el minimo esta muy por encima de cero.
 #
-#   SNR         mediana 10.15 dB, minimo 2.57 dB, distribucion continua. El
-#               corte en 5 dB retira 11 grabaciones sin concentrar las
-#               exclusiones de forma desproporcionada en un solo dispositivo,
-#               lo que evitaria introducir sesgo instrumental.
+#   SNR         mediana 12.63 dB en la banda comun de 50-1800 Hz y minimo
+#               medible de 0.49 dB. El corte en 5 dB marca 20 grabaciones para
+#               revision (16 AKG C417L y 4 Meditron); no las elimina, porque esa
+#               concentracion por dispositivo podria sesgar el experimento.
 
-MAX_SATURATION_PCT = 5.0       # % maximo de muestras en rachas de saturacion
-MIN_RMS = 0.001                # por debajo se considera captura fallida
-MIN_VARIANCE = 0.0             # varianza nula identifica el archivo constante
-MIN_SNR_DB = 5.0               # relacion senal-ruido minima admisible
+MAX_SATURATION_PCT = 5.0       # por encima: REVIEW
+MIN_RMS = 0.001                # por debajo: EXCLUDE (captura fallida)
+MIN_VARIANCE = 0.0             # varianza nula: EXCLUDE (archivo constante)
+MIN_SNR_DB = 5.0               # proxy por debajo: REVIEW
 
 # ---------------------------------------------------------------------------
 # Fase 2 - Estandarizacion de frecuencia
@@ -96,12 +109,30 @@ RESAMPLE_RATIOS = {
     10000: (2, 5),
 }
 
+# Filtro anti-aliasing explicito. El filtro implicito de resample_poly (ventana
+# Kaiser con beta=5.0 fijo, sin parametro propio) situa su corte exactamente en
+# el nuevo Nyquist, sin margen de guarda: verificado con freqz, a 2000 Hz solo
+# ofrece 6 dB de atenuacion y no alcanza 60 dB hasta pasados los 2500 Hz. En
+# este corpus la energia real por encima de 2000 Hz es inferior al 0.02 % en
+# todos los casos verificados, de modo que el defecto no corrompia audio de
+# forma medible, pero tampoco era una especificacion citable. Este filtro fija
+# una banda de transicion de 200 Hz (1800-2000 Hz) con al menos 60 dB de
+# atenuacion comprobados, tanto con freqz como con tonos puros.
+ANTIALIAS_PASSBAND_HZ = COMMON_BAND_HIGH   # 1800 Hz: limite superior de la banda util
+ANTIALIAS_STOPBAND_HZ = 2000               # nuevo Nyquist
+ANTIALIAS_CUTOFF_HZ = 1900                 # corte del FIR, centro de la transicion
+ANTIALIAS_RIPPLE_DB = 65                   # atenuacion solicitada a kaiserord
+ANTIALIAS_MIN_ATTEN_DB = 60                # atenuacion minima aceptada en verificacion
+ANTIALIAS_PASSBAND_TOL_DB = 0.1            # ondulacion maxima aceptada hasta 1800 Hz
+ANTIALIAS_PADTYPE = "line"                 # continuacion lineal, no ceros, en los bordes
+ANTIALIAS_MAX_TIME_ERROR_SAMPLES = 1.0     # error temporal maximo, en muestras de salida
+
 # ---------------------------------------------------------------------------
 # Fase 3 - Limpieza de senal
 # ---------------------------------------------------------------------------
 
-BANDPASS_LOW = 50
-BANDPASS_HIGH = 1800
+BANDPASS_LOW = COMMON_BAND_LOW
+BANDPASS_HIGH = COMMON_BAND_HIGH
 BANDPASS_ORDER = 4
 
 STFT_WINDOW = "hann"

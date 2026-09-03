@@ -6,8 +6,14 @@ datos mantengan una relacion correcta con la metadata y que las grabaciones
 cumplan condiciones minimas de calidad.
 
   1a  Integridad de los datos
-  1b  Extraccion de anotaciones de los ciclos respiratorios
-  1c  Calidad de senal
+  1b  Validacion y regeneracion de anotaciones respiratorias
+  1c  Calidad objetiva de senal
+  1d  Duplicados binarios
+  1e  Validacion contra las fuentes de metadata
+
+El resultado contractual es phase1_manifest.csv. Distingue la calidad
+acustica (PASS/REVIEW/EXCLUDE) de la elegibilidad para modelado, para no
+confundir una incidencia de procedencia o duplicacion con una senal defectuosa.
 
 Esta fase no modifica ningun audio: solo produce informes.
 """
@@ -26,6 +32,7 @@ import utils as u
 
 SUBTYPE_BITS = {"PCM_16": 16, "PCM_24": 24, "PCM_32": 32, "FLOAT": 32}
 DURATION_TOLERANCE_S = 0.02
+ANNOTATION_TOLERANCE_S = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +57,20 @@ def step_1a_integrity(meta):
             "dataset": r["dataset"],
             "audio_id": r["audio_id"],
             "audio_path": r["audio_path"],
-            "file_exists": path.exists(),
+            "row_type": "metadata",
+            "file_exists": path.is_file(),
+            "readable_header": False,
+            "actual_sr": np.nan,
+            "declared_sr": int(r["sample_rate_hz"]),
+            "actual_channels": np.nan,
+            "declared_channels": int(r["channels"]),
+            "actual_duration_s": np.nan,
+            "declared_duration_s": float(r["duration_seconds"]),
+            "duration_delta_s": np.nan,
+            "actual_subtype": "",
+            "declared_bit_depth": int(r["bit_depth"]),
+            "frames": 0,
+            "file_size_bytes": path.stat().st_size if path.is_file() else 0,
             "sr_ok": False,
             "channels_ok": False,
             "duration_ok": False,
@@ -58,10 +78,18 @@ def step_1a_integrity(meta):
             "detail": "",
         }
 
-        if path.exists():
+        if path.is_file():
             try:
                 info = u.audio_info(path)
                 problems = []
+                entry.update({
+                    "readable_header": True,
+                    "actual_sr": info.samplerate,
+                    "actual_channels": info.channels,
+                    "actual_duration_s": info.duration,
+                    "actual_subtype": info.subtype,
+                    "frames": info.frames,
+                })
 
                 entry["sr_ok"] = info.samplerate == int(r["sample_rate_hz"])
                 if not entry["sr_ok"]:
@@ -72,6 +100,7 @@ def step_1a_integrity(meta):
                     problems.append(f"canales {info.channels} vs {r['channels']}")
 
                 delta = abs(info.duration - float(r["duration_seconds"]))
+                entry["duration_delta_s"] = delta
                 entry["duration_ok"] = delta <= DURATION_TOLERANCE_S
                 if not entry["duration_ok"]:
                     problems.append(f"duracion {info.duration:.3f} vs {r['duration_seconds']}")
@@ -92,7 +121,8 @@ def step_1a_integrity(meta):
 
     report = pd.DataFrame(rows)
     report["passes"] = (
-        report["file_exists"] & report["sr_ok"] & report["channels_ok"]
+        report["file_exists"] & report["readable_header"]
+        & report["sr_ok"] & report["channels_ok"]
         & report["duration_ok"] & report["bit_depth_ok"]
     )
 
@@ -102,7 +132,31 @@ def step_1a_integrity(meta):
         declared = {Path(p).resolve() for p in meta.loc[meta["dataset"] == name, "abs_path"]}
         on_disk = {p.resolve() for p in (root / "audio").rglob("*.wav")}
         for extra in sorted(on_disk - declared):
-            orphans.append({"dataset": name, "audio_path": str(extra), "issue": "sin declarar"})
+            orphans.append({
+                "dataset": name,
+                "audio_id": "",
+                "audio_path": str(extra.relative_to(root)),
+                "row_type": "orphan_audio",
+                "file_exists": True,
+                "readable_header": False,
+                "actual_sr": np.nan,
+                "declared_sr": np.nan,
+                "actual_channels": np.nan,
+                "declared_channels": np.nan,
+                "actual_duration_s": np.nan,
+                "declared_duration_s": np.nan,
+                "duration_delta_s": np.nan,
+                "actual_subtype": "",
+                "declared_bit_depth": np.nan,
+                "frames": 0,
+                "file_size_bytes": extra.stat().st_size,
+                "sr_ok": False,
+                "channels_ok": False,
+                "duration_ok": False,
+                "bit_depth_ok": False,
+                "detail": "audio presente en disco y ausente de la metadata",
+                "passes": False,
+            })
 
     print(f"\n  Archivos contrastados      : {len(report)}")
     print(f"  Ausentes en disco          : {(~report['file_exists']).sum()}")
@@ -116,10 +170,13 @@ def step_1a_integrity(meta):
             print(f"    {f['audio_id']}: {f['detail']}")
 
     out = cfg.REPORTS / "integrity.csv"
-    report.to_csv(out, index=False)
+    complete_report = pd.concat(
+        [report, pd.DataFrame(orphans, columns=report.columns)], ignore_index=True
+    )
+    complete_report.to_csv(out, index=False)
     print(f"\n  -> {out.relative_to(cfg.ROOT)}")
 
-    return report
+    return complete_report
 
 
 # ---------------------------------------------------------------------------
@@ -159,46 +216,78 @@ def event_label(crackles, wheezes):
 
 
 def step_1b_annotations(meta):
-    """Reconstruye la tabla de ciclos respiratorios desde los archivos de anotacion.
+    """Valida las anotaciones ICBHI y regenera sus dos tablas derivadas.
 
-    Solo ICBHI dispone de anotaciones temporales. La tabla se regenera para que
-    el pipeline sea reproducible desde cero, y se contrasta con la version ya
-    presente en el repositorio sin sobrescribirla.
+    Las fuentes .txt y los CSV originales nunca se sobrescriben. Los resultados
+    regenerados se guardan en reports/ y se comparan por contenido, no solo por
+    numero de filas o distribucion de etiquetas.
     """
     u.section("FASE 1b - EXTRACCION DE ANOTACIONES")
 
     icbhi = meta.loc[meta["dataset"] == "ICBHI"]
     rows = []
-    anomalies = []
+    summaries = []
+    issues = []
+    valid_source_cycles = {}
     progress = u.Progress(len(icbhi), "anotaciones", every=100)
 
     for _, r in icbhi.iterrows():
         path = u.annotation_path(r)
         if path is None or not path.exists():
-            anomalies.append(f"{r['audio_id']}: anotacion ausente")
+            issues.append({
+                "audio_id": r["audio_id"], "cycle_idx": "",
+                "source": "annotation_txt", "issue": "MISSING_ANNOTATION",
+                "detail": str(path),
+            })
             progress.step()
             continue
 
         try:
             cycles = parse_annotation(path)
-        except ValueError as exc:
-            anomalies.append(str(exc))
+        except (OSError, ValueError) as exc:
+            issues.append({
+                "audio_id": r["audio_id"], "cycle_idx": "",
+                "source": "annotation_txt", "issue": "UNREADABLE_ANNOTATION",
+                "detail": str(exc),
+            })
             progress.step()
             continue
 
         if not cycles:
-            anomalies.append(f"{r['audio_id']}: sin ciclos")
+            issues.append({
+                "audio_id": r["audio_id"], "cycle_idx": "",
+                "source": "annotation_txt", "issue": "EMPTY_ANNOTATION",
+                "detail": str(path),
+            })
 
         duration = float(r["duration_seconds"])
         previous_end = None
+        valid_cycles = []
         for idx, (start, end, crackles, wheezes) in enumerate(cycles, start=1):
+            cycle_issues = []
+            if not np.isfinite([start, end]).all():
+                cycle_issues.append("NON_FINITE_TIME")
+            if start < 0:
+                cycle_issues.append("NEGATIVE_START")
             if end <= start:
-                anomalies.append(f"{r['audio_id']} ciclo {idx}: duracion no positiva")
-            if end > duration + 0.05:
-                anomalies.append(f"{r['audio_id']} ciclo {idx}: excede la duracion del audio")
+                cycle_issues.append("NON_POSITIVE_DURATION")
+            if end > duration + ANNOTATION_TOLERANCE_S:
+                cycle_issues.append("END_AFTER_AUDIO")
             if previous_end is not None and start < previous_end - 1e-6:
-                anomalies.append(f"{r['audio_id']} ciclo {idx}: solapa con el anterior")
+                cycle_issues.append("OVERLAP_WITH_PREVIOUS")
+            if crackles not in (0, 1) or wheezes not in (0, 1):
+                cycle_issues.append("INVALID_EVENT_FLAG")
             previous_end = end
+
+            for issue in cycle_issues:
+                issues.append({
+                    "audio_id": r["audio_id"], "cycle_idx": idx,
+                    "source": "annotation_txt", "issue": issue,
+                    "detail": f"start={start}; end={end}; crackles={crackles}; wheezes={wheezes}",
+                })
+            if cycle_issues:
+                continue
+            valid_cycles.append((start, end, crackles, wheezes))
 
             rows.append({
                 "dataset": "ICBHI",
@@ -215,32 +304,204 @@ def step_1b_annotations(meta):
                 "wheezes": wheezes,
                 "label": event_label(crackles, wheezes),
             })
+        valid_source_cycles[r["audio_id"]] = valid_cycles
         progress.step()
 
-    cycles_df = pd.DataFrame(rows)
+    cycle_columns = [
+        "dataset", "audio_id", "patient_uid", "diagnosis", "device", "zone",
+        "cycle_idx", "start_s", "end_s", "duration_s", "crackles", "wheezes", "label",
+    ]
+    cycles_df = pd.DataFrame(rows, columns=cycle_columns)
+
+    for _, r in icbhi.iterrows():
+        group = cycles_df.loc[cycles_df["audio_id"] == r["audio_id"]]
+        raw_cycles = valid_source_cycles.get(r["audio_id"], [])
+        exact_durations = np.array([end - start for start, end, _, _ in raw_cycles])
+        counts = group["label"].value_counts()
+        n_cycles = len(group)
+        annotated_s = float(exact_durations.sum()) if n_cycles else 0.0
+        summaries.append({
+            "dataset": "ICBHI",
+            "audio_id": r["audio_id"],
+            "patient_uid": r["patient_uid"],
+            "diagnosis": r["diagnosis"],
+            "device": r["device"],
+            "zone": r["zone"],
+            "duration_seconds": round(float(r["duration_seconds"]), 3),
+            "n_cycles": n_cycles,
+            "n_normal": int(counts.get("normal", 0)),
+            "n_crackles_only": int(counts.get("crackles", 0)),
+            "n_wheezes_only": int(counts.get("wheezes", 0)),
+            "n_both": int(counts.get("both", 0)),
+            "n_with_crackles": int(group["crackles"].sum()) if n_cycles else 0,
+            "n_with_wheezes": int(group["wheezes"].sum()) if n_cycles else 0,
+            "pct_with_crackles": round(100 * group["crackles"].sum() / n_cycles, 2) if n_cycles else 0.0,
+            "pct_with_wheezes": round(100 * group["wheezes"].sum() / n_cycles, 2) if n_cycles else 0.0,
+            "mean_cycle_s": round(float(exact_durations.mean()), 3) if n_cycles else np.nan,
+            "annotated_s": round(annotated_s, 3),
+            "coverage_pct": round(100 * annotated_s / float(r["duration_seconds"]), 2),
+            "annotation_path": path_relative(u.annotation_path(r), cfg.ICBHI_DIR),
+        })
+
+    summary_df = pd.DataFrame(summaries)
     counts = cycles_df["label"].value_counts()
 
     print(f"\n  Grabaciones con anotacion : {cycles_df['audio_id'].nunique()}")
     print(f"  Ciclos respiratorios      : {len(cycles_df)}")
     for label in ("normal", "crackles", "wheezes", "both"):
         print(f"    {label:<10} {counts.get(label, 0):>6}")
-    print(f"  Anomalias detectadas      : {len(anomalies)}")
-    for a in anomalies[:10]:
-        print(f"    {a}")
+    source_issue_count = len(issues)
 
-    # Contraste con la tabla ya presente en el repositorio
+    # Contraste completo con la tabla presente en el repositorio.
     if cfg.ICBHI_CYCLES.exists():
         committed = pd.read_csv(cfg.ICBHI_CYCLES)
-        same_rows = len(committed) == len(cycles_df)
-        same_labels = (
-            committed["label"].value_counts().to_dict()
-            == cycles_df["label"].value_counts().to_dict()
-        )
-        verdict = "coincide" if (same_rows and same_labels) else "DIFIERE"
-        print(f"\n  Contraste con icbhi_respiratory_cycles.csv: {verdict}"
-              f"  ({len(committed)} filas en el repositorio)")
+        compare_cycle_tables(cycles_df, committed, issues)
+    else:
+        issues.append({
+            "audio_id": "", "cycle_idx": "", "source": "committed_cycles",
+            "issue": "MISSING_COMMITTED_TABLE", "detail": str(cfg.ICBHI_CYCLES),
+        })
+    if cfg.ICBHI_CYCLE_SUMMARY.exists():
+        committed_summary = pd.read_csv(cfg.ICBHI_CYCLE_SUMMARY)
+        compare_summary_tables(summary_df, committed_summary, issues)
+    else:
+        issues.append({
+            "audio_id": "", "cycle_idx": "", "source": "committed_summary",
+            "issue": "MISSING_COMMITTED_TABLE", "detail": str(cfg.ICBHI_CYCLE_SUMMARY),
+        })
 
-    return cycles_df, anomalies
+    out_cycles = cfg.REPORTS / "icbhi_respiratory_cycles_regenerated.csv"
+    out_summary = cfg.REPORTS / "icbhi_cycle_summary_regenerated.csv"
+    out_validation = cfg.REPORTS / "annotation_validation.csv"
+    cycles_df.to_csv(out_cycles, index=False)
+    summary_df.to_csv(out_summary, index=False)
+    validation = pd.DataFrame(
+        issues, columns=["audio_id", "cycle_idx", "source", "issue", "detail"]
+    )
+    validation.to_csv(out_validation, index=False)
+
+    print(f"  Anomalias en fuentes      : {source_issue_count}")
+    print(f"  Incidencias totales       : {len(validation)}")
+    for _, issue in validation.head(10).iterrows():
+        print(f"    {issue['audio_id']} {issue['cycle_idx']}: {issue['issue']}")
+    verdict = "coincide" if validation.empty else "REVISAR"
+    print(f"\n  Contraste con icbhi_respiratory_cycles.csv: {verdict}")
+    print(f"  -> {out_cycles.relative_to(cfg.ROOT)}")
+    print(f"  -> {out_summary.relative_to(cfg.ROOT)}")
+    print(f"  -> {out_validation.relative_to(cfg.ROOT)}")
+
+    return cycles_df, summary_df, validation
+
+
+def path_relative(path, root):
+    """Ruta POSIX relativa a root, estable entre sistemas operativos."""
+    return Path(path).relative_to(root).as_posix()
+
+
+def compare_cycle_tables(regenerated, committed, issues):
+    """Registra diferencias de contenido entre ciclos regenerados y guardados."""
+    required = set(regenerated.columns)
+    missing = sorted(required - set(committed.columns))
+    if missing:
+        issues.append({
+            "audio_id": "", "cycle_idx": "", "source": "committed_cycles",
+            "issue": "MISSING_COLUMNS", "detail": ", ".join(missing),
+        })
+        return
+
+    keys = ["audio_id", "cycle_idx"]
+    for table_name, table in (("regenerated", regenerated), ("committed", committed)):
+        duplicates = table.loc[table.duplicated(keys, keep=False), keys]
+        for _, duplicate in duplicates.drop_duplicates().iterrows():
+            issues.append({
+                "audio_id": duplicate["audio_id"], "cycle_idx": duplicate["cycle_idx"],
+                "source": table_name, "issue": "DUPLICATE_CYCLE_KEY", "detail": "",
+            })
+
+    merged = regenerated.merge(
+        committed[list(regenerated.columns)], on=keys, how="outer",
+        suffixes=("_new", "_stored"), indicator=True,
+    )
+    for _, row in merged.loc[merged["_merge"] != "both"].iterrows():
+        issues.append({
+            "audio_id": row["audio_id"], "cycle_idx": row["cycle_idx"],
+            "source": "committed_cycles", "issue": "ROW_" + row["_merge"].upper(),
+            "detail": "left_only=solo regenerado; right_only=solo almacenado",
+        })
+
+    both = merged.loc[merged["_merge"] == "both"]
+    numeric = {"start_s", "end_s", "duration_s"}
+    for column in (required - set(keys)):
+        left = both[f"{column}_new"]
+        right = both[f"{column}_stored"]
+        if column in numeric:
+            different = ~np.isclose(
+                pd.to_numeric(left, errors="coerce"),
+                pd.to_numeric(right, errors="coerce"),
+                atol=0.001, rtol=0, equal_nan=True,
+            )
+        else:
+            different = left.astype(str) != right.astype(str)
+        for idx in both.index[different]:
+            row = both.loc[idx]
+            issues.append({
+                "audio_id": row["audio_id"], "cycle_idx": row["cycle_idx"],
+                "source": "committed_cycles", "issue": "VALUE_MISMATCH",
+                "detail": f"{column}: {row[f'{column}_new']} vs {row[f'{column}_stored']}",
+            })
+
+
+def compare_summary_tables(regenerated, committed, issues):
+    """Registra diferencias de contenido en el resumen por grabacion."""
+    required = list(regenerated.columns)
+    missing = sorted(set(required) - set(committed.columns))
+    if missing:
+        issues.append({
+            "audio_id": "", "cycle_idx": "", "source": "committed_summary",
+            "issue": "MISSING_COLUMNS", "detail": ", ".join(missing),
+        })
+        return
+    merged = regenerated.merge(
+        committed[required], on="audio_id", how="outer",
+        suffixes=("_new", "_stored"), indicator=True,
+    )
+    for _, row in merged.loc[merged["_merge"] != "both"].iterrows():
+        issues.append({
+            "audio_id": row["audio_id"], "cycle_idx": "",
+            "source": "committed_summary", "issue": "ROW_" + row["_merge"].upper(),
+            "detail": "left_only=solo regenerado; right_only=solo almacenado",
+        })
+    both = merged.loc[merged["_merge"] == "both"]
+    numeric_columns = set(regenerated.select_dtypes(include=np.number).columns) - {"audio_id"}
+    count_columns = {
+        "n_cycles", "n_normal", "n_crackles_only", "n_wheezes_only",
+        "n_both", "n_with_crackles", "n_with_wheezes",
+    }
+    percentage_columns = {"pct_with_crackles", "pct_with_wheezes", "coverage_pct"}
+    for column in (set(required) - {"audio_id"}):
+        left = both[f"{column}_new"]
+        right = both[f"{column}_stored"]
+        if column in numeric_columns:
+            if column in count_columns:
+                tolerance = 0.0
+            elif column in percentage_columns:
+                tolerance = 0.011
+            else:
+                tolerance = 0.0011
+            different = ~np.isclose(
+                pd.to_numeric(left, errors="coerce"),
+                pd.to_numeric(right, errors="coerce"),
+                atol=tolerance, rtol=0, equal_nan=True,
+            )
+        else:
+            different = left.astype(str) != right.astype(str)
+        for idx in both.index[different]:
+            row = both.loc[idx]
+            issues.append({
+                "audio_id": row["audio_id"], "cycle_idx": "",
+                "source": "committed_summary", "issue": "VALUE_MISMATCH",
+                "detail": f"{column}: {row[f'{column}_new']} vs {row[f'{column}_stored']}",
+            })
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +511,9 @@ def step_1b_annotations(meta):
 def step_1c_signal_quality(meta):
     """Evalua si cada archivo contiene una senal respiratoria utilizable.
 
-    Calcula saturacion, RMS y varianza, y la relacion senal-ruido estimada por
-    percentiles. No excluye nada mientras los umbrales de config no esten
-    fijados: la primera ejecucion sirve para observar las distribuciones.
+    Calcula indicadores objetivos sin alterar las muestras. El proxy de SNR se
+    mide sobre una copia temporal limitada a 50-1800 Hz para que sea comparable
+    entre las frecuencias de muestreo originales.
     """
     u.section("FASE 1c - CALIDAD DE SENAL")
 
@@ -272,27 +533,46 @@ def step_1c_signal_quality(meta):
             "sample_rate_hz": int(r["sample_rate_hz"]),
             "bit_depth": int(r["bit_depth"]),
             "duration_s": float(r["duration_seconds"]),
+            "file_sha256": "",
+            "error": "",
         }
 
         try:
+            entry["file_sha256"] = u.file_sha256(path)
             x, sr = u.read_audio(path)
-            sat_pct, sat_runs = u.saturation_stats(x)
+            sat_pct, sat_runs = u.saturation_stats(x, sr)
+            silence_pct, silence_longest = u.digital_silence_stats(x)
+            snr_value, snr_status = u.snr_proxy_db(x, sr)
+            finite = bool(np.isfinite(x).all())
             entry.update({
                 "rms": u.rms(x),
+                "rms_without_dc": u.rms_without_dc(x),
                 "variance": float(np.var(x)),
                 "dc_offset": u.dc_offset(x),
                 "peak": float(np.max(np.abs(x))) if x.size else 0.0,
                 "saturation_pct": sat_pct,
                 "saturation_runs": sat_runs,
-                "snr_db": u.estimate_snr_db(x, sr),
+                "digital_silence_pct": silence_pct,
+                "digital_silence_longest_samples": silence_longest,
+                "digital_silence_longest_s": silence_longest / sr,
+                "snr_proxy_db": snr_value,
+                "snr_status": snr_status,
                 "n_frames": int(u.frame_energy(x, sr).size),
+                "n_samples": int(x.size),
+                "has_non_finite": not finite,
                 "readable": True,
             })
         except Exception as exc:
             entry.update({
-                "rms": np.nan, "variance": np.nan, "dc_offset": np.nan,
+                "rms": np.nan, "rms_without_dc": np.nan,
+                "variance": np.nan, "dc_offset": np.nan,
                 "peak": np.nan, "saturation_pct": np.nan, "saturation_runs": 0,
-                "snr_db": np.nan, "n_frames": 0, "readable": False,
+                "digital_silence_pct": np.nan,
+                "digital_silence_longest_samples": 0,
+                "digital_silence_longest_s": np.nan,
+                "snr_proxy_db": np.nan, "snr_status": "READ_ERROR",
+                "n_frames": 0, "n_samples": 0, "has_non_finite": False,
+                "readable": False,
                 "error": str(exc),
             })
 
@@ -306,18 +586,22 @@ def step_1c_signal_quality(meta):
     u.describe(quality["rms"], "RMS", "", "{:8.5f}")
     u.describe(quality["peak"], "pico", "", "{:8.5f}")
     u.describe(quality["dc_offset"], "componente continua", "", "{:8.5f}")
-    u.describe(quality["snr_db"], "SNR", " dB", "{:8.2f}")
+    u.describe(quality["digital_silence_pct"], "silencio digital", " %", "{:8.3f}")
+    u.describe(quality["snr_proxy_db"], "SNR proxy 50-1800 Hz", " dB", "{:8.2f}")
 
     # El mismo modelo de estetoscopio aparece en ambos corpus, de modo que la
     # agrupacion debe distinguir tambien el conjunto de origen: son campanas de
     # adquisicion distintas aunque el instrumento coincida.
-    quality["group"] = quality["dataset"] + " / " + quality["device"]
+    filter_name = quality["filter"].replace("", "sin filtro")
+    quality["group"] = (
+        quality["dataset"] + " / " + quality["device"] + " / " + filter_name
+    )
 
     print("\n  Por conjunto y dispositivo:\n")
     print(f"  {'grupo':<24}{'n':>5}{'satur.med':>11}{'satur.max':>11}"
           f"{'RMS med':>10}{'SNR med':>9}{'SNR p10':>9}")
     for group_name, group in quality.groupby("group"):
-        snr = group["snr_db"].replace([np.inf, -np.inf], np.nan).dropna()
+        snr = group["snr_proxy_db"].dropna()
         print(f"  {group_name:<24}{len(group):>5}"
               f"{group['saturation_pct'].mean():>11.4f}"
               f"{group['saturation_pct'].max():>11.4f}"
@@ -327,10 +611,6 @@ def step_1c_signal_quality(meta):
 
     report_saturation_by_diagnosis(quality)
     report_threshold_candidates(quality)
-
-    # Candidatos segun los umbrales vigentes
-    flags = evaluate_thresholds(quality)
-    quality = quality.join(flags)
 
     out = cfg.REPORTS / "signal_quality.csv"
     quality.to_csv(out, index=False)
@@ -366,98 +646,310 @@ def report_saturation_by_diagnosis(quality):
 
 
 def report_threshold_candidates(quality):
-    """Efecto de distintos umbrales, para fijarlos observando la distribucion."""
+    """Efecto de distintos umbrales como candidatos de revision manual."""
     print("\n  Efecto de umbrales candidatos de saturacion:\n")
-    print(f"  {'umbral':>9}{'excluidos':>11}{'% corpus':>10}   reparto por clase (ICBHI)")
+    print(f"  {'umbral':>9}{'marcados':>11}{'% corpus':>10}   reparto por clase (ICBHI)")
     icbhi = quality.loc[quality["dataset"] == "ICBHI"]
     for threshold in (0.5, 1.0, 2.0, 5.0, 10.0, 20.0):
-        excluded = quality.loc[quality["saturation_pct"] > threshold]
+        selected = quality.loc[quality["saturation_pct"] > threshold]
         by_class = icbhi.loc[icbhi["saturation_pct"] > threshold, "diagnosis"].value_counts()
         detail = ", ".join(f"{k}:{v}" for k, v in by_class.items()) or "-"
-        print(f"  {threshold:>8.1f}%{len(excluded):>11}"
-              f"{100 * len(excluded) / len(quality):>9.1f}%   {detail}")
+        print(f"  {threshold:>8.1f}%{len(selected):>11}"
+              f"{100 * len(selected) / len(quality):>9.1f}%   {detail}")
 
     print("\n  Efecto de umbrales candidatos de SNR:\n")
-    print(f"  {'umbral':>9}{'excluidos':>11}{'% corpus':>10}   reparto por grupo")
+    print(f"  {'umbral':>9}{'marcados':>11}{'% corpus':>10}   reparto por grupo")
     for threshold in (3.0, 4.0, 5.0, 6.0, 7.0):
-        excluded = quality.loc[quality["snr_db"] < threshold]
-        by_group = excluded["group"].value_counts()
-        detail = ", ".join(f"{k.split(' / ')[1]}:{v}" for k, v in by_group.items()) or "-"
-        print(f"  {threshold:>8.1f} dB{len(excluded):>10}"
-              f"{100 * len(excluded) / len(quality):>9.1f}%   {detail}")
+        selected = quality.loc[quality["snr_proxy_db"] < threshold]
+        by_group = selected["group"].value_counts()
+        detail = ", ".join(f"{k}:{v}" for k, v in by_group.items()) or "-"
+        print(f"  {threshold:>8.1f} dB{len(selected):>10}"
+              f"{100 * len(selected) / len(quality):>9.1f}%   {detail}")
 
 
-def evaluate_thresholds(quality):
-    """Marca cada grabacion segun los umbrales vigentes en config.
-
-    Un umbral en None significa que aun no se ha fijado, y en ese caso el
-    criterio correspondiente no excluye nada.
-    """
-    n = len(quality)
-    flags = pd.DataFrame(index=quality.index)
-
-    flags["fail_saturation"] = (
-        quality["saturation_pct"] > cfg.MAX_SATURATION_PCT
-        if cfg.MAX_SATURATION_PCT is not None else pd.Series(False, index=quality.index)
-    )
-    flags["fail_rms"] = (
-        quality["rms"] < cfg.MIN_RMS
-        if cfg.MIN_RMS is not None else pd.Series(False, index=quality.index)
-    )
-    flags["fail_variance"] = quality["variance"] <= cfg.MIN_VARIANCE
-    flags["fail_snr"] = (
-        quality["snr_db"] < cfg.MIN_SNR_DB
-        if cfg.MIN_SNR_DB is not None else pd.Series(False, index=quality.index)
-    )
-    flags["fail_unreadable"] = ~quality["readable"]
-    flags["excluded"] = flags.any(axis=1)
-    return flags
-
-
-def write_exclusions(quality):
-    """Registro de las grabaciones excluidas, con el criterio incumplido."""
-    criteria = {
-        "fail_unreadable": "archivo no legible",
-        "fail_variance": "varianza nula (archivo plano)",
-        "fail_saturation": "saturacion por encima del umbral",
-        "fail_rms": "RMS por debajo del minimo",
-        "fail_snr": "SNR por debajo del minimo",
-    }
-
+def step_1d_duplicates(quality):
+    """Detecta copias binarias y decide su elegibilidad para modelado."""
+    u.section("FASE 1d - DUPLICADOS BINARIOS")
     rows = []
-    for _, r in quality.loc[quality["excluded"]].iterrows():
-        reasons = [text for flag, text in criteria.items() if r.get(flag)]
-        rows.append({
-            "dataset": r["dataset"],
-            "audio_id": r["audio_id"],
-            "device": r["device"],
-            "criterio": "; ".join(reasons),
-            "saturation_pct": r["saturation_pct"],
-            "rms": r["rms"],
-            "variance": r["variance"],
-            "snr_db": r["snr_db"],
+    modeling = {}
+    duplicate_groups = quality.groupby("file_sha256", dropna=False)
+    duplicate_hashes = sorted(
+        hash_value for hash_value, group in duplicate_groups
+        if hash_value and len(group) > 1
+    )
+
+    for number, hash_value in enumerate(duplicate_hashes, start=1):
+        group = quality.loc[quality["file_sha256"] == hash_value].sort_values("audio_id")
+        group_id = f"DUP_{number:03d}"
+        conflicting = group["patient_uid"].nunique() > 1 or group["diagnosis"].nunique() > 1
+        duplicate_type = "LABEL_CONFLICT" if conflicting else "REDUNDANT_COPY"
+
+        for position, (_, item) in enumerate(group.iterrows()):
+            if conflicting:
+                action = "EXCLUDE_FROM_MODELING"
+                status = "EXCLUDE_LABEL_CONFLICT"
+                reason = "mismo contenido binario asociado a paciente o diagnostico distinto"
+            elif position == 0:
+                action = "KEEP_REFERENCE"
+                status = "ELIGIBLE"
+                reason = "copia de referencia conservada"
+            else:
+                action = "EXCLUDE_REDUNDANT_COPY"
+                status = "EXCLUDE_REDUNDANT"
+                reason = "copia binaria redundante dentro del mismo paciente y diagnostico"
+
+            modeling[item["audio_id"]] = {
+                "duplicate_group_id": group_id,
+                "duplicate_type": duplicate_type,
+                "modeling_status": status,
+                "modeling_reason": reason,
+            }
+            rows.append({
+                "duplicate_group_id": group_id,
+                "file_sha256": hash_value,
+                "dataset": item["dataset"],
+                "audio_id": item["audio_id"],
+                "patient_uid": item["patient_uid"],
+                "diagnosis": item["diagnosis"],
+                "device": item["device"],
+                "filter": item["filter"],
+                "duplicate_type": duplicate_type,
+                "action": action,
+                "modeling_status": status,
+                "reason": reason,
+            })
+
+    columns = [
+        "duplicate_group_id", "file_sha256", "dataset", "audio_id",
+        "patient_uid", "diagnosis", "device", "filter", "duplicate_type",
+        "action", "modeling_status", "reason",
+    ]
+    report = pd.DataFrame(rows, columns=columns)
+    out = cfg.REPORTS / "duplicate_audio_report.csv"
+    report.to_csv(out, index=False)
+    print(f"  Grupos duplicados         : {len(duplicate_hashes)}")
+    print(f"  Archivos implicados       : {len(report)}")
+    print(f"  Exclusiones para modelado : {(report['modeling_status'] != 'ELIGIBLE').sum() if len(report) else 0}")
+    print(f"\n  -> {out.relative_to(cfg.ROOT)}")
+    return report, modeling
+
+
+def _normal_text(value):
+    return " ".join(str(value).strip().split())
+
+
+def _normal_age(value):
+    try:
+        return str(int(float(value)))
+    except (TypeError, ValueError):
+        return _normal_text(value)
+
+
+def step_1e_metadata_sources(meta):
+    """Contrasta los CSV derivados con las fuentes clinicas disponibles."""
+    u.section("FASE 1e - VALIDACION DE METADATA FUENTE")
+    issues = []
+
+    def add_issue(row, field, current, source, reference, issue="VALUE_MISMATCH"):
+        issues.append({
+            "dataset": row["dataset"], "audio_id": row["audio_id"],
+            "patient_uid": row["patient_uid"], "field": field,
+            "metadata_value": current, "source_value": source,
+            "source_reference": reference, "issue": issue,
         })
 
-    columns = ["dataset", "audio_id", "device", "criterio",
-               "saturation_pct", "rms", "variance", "snr_db"]
-    exclusions = pd.DataFrame(rows, columns=columns)
+    diagnoses = pd.read_csv(
+        cfg.ICBHI_DIAGNOSES, header=None, names=["patient_id", "diagnosis"],
+        dtype=str, keep_default_na=False,
+    )
+    diagnoses = dict(zip(diagnoses["patient_id"].str.strip(), diagnoses["diagnosis"].str.strip()))
 
-    out = cfg.REPORTS / "exclusions.csv"
-    exclusions.to_csv(out, index=False)
+    for _, row in meta.loc[meta["dataset"] == "ICBHI"].iterrows():
+        patient_id = row["patient_id"].strip()
+        source_diagnosis = diagnoses.get(patient_id)
+        if source_diagnosis is None:
+            add_issue(row, "patient_id", patient_id, "", str(cfg.ICBHI_DIAGNOSES), "PATIENT_NOT_IN_SOURCE")
+        elif row["diagnosis"] != source_diagnosis:
+            add_issue(row, "diagnosis", row["diagnosis"], source_diagnosis, str(cfg.ICBHI_DIAGNOSES))
+        validate_filename(row, issues)
 
-    admitted = len(quality) - len(exclusions)
-    print(f"\n  Admitidos : {admitted}")
-    print(f"  Excluidos : {len(exclusions)}")
-    if not exclusions.empty:
-        print("\n  Por criterio:")
-        for criterio, group in exclusions.groupby("criterio"):
-            print(f"    {criterio:<44} {len(group):>4}")
-        print("\n  Por dispositivo:")
-        for device, group in exclusions.groupby("device"):
-            print(f"    {device:<44} {len(group):>4}")
+    diagnosis_aliases = {
+        "n": "Normal", "normal": "Normal", "asthma": "Asthma",
+        "heart failure": "HeartFailure", "copd": "COPD",
+        "pneumonia": "Pneumonia", "bron": "Bronchitis",
+        "bronchitis": "Bronchitis", "lung fibrosis": "LungFibrosis",
+        "heart failure + copd": "HeartFailure-COPD",
+        "plueral effusion": "PleuralEffusion",
+        "pleural effusion": "PleuralEffusion",
+        "heart failure + lung fibrosis": "HeartFailure-LungFibrosis",
+        "asthma and lung fibrosis": "Asthma-LungFibrosis",
+    }
+    source = pd.read_excel(cfg.FRAIWAN_SOURCE_XLSX, usecols="A:E", dtype=object)
+    source.columns = ["age", "gender", "zone", "sound_type", "diagnosis"]
+    source["patient_id"] = [f"F{i:03d}" for i in range(1, len(source) + 1)]
+    source = source.set_index("patient_id")
+
+    for _, row in meta.loc[meta["dataset"] == "FRAIWAN"].iterrows():
+        patient_id = row["patient_id"].strip()
+        if patient_id not in source.index:
+            add_issue(row, "patient_id", patient_id, "", str(cfg.FRAIWAN_SOURCE_XLSX), "PATIENT_NOT_IN_SOURCE")
+            continue
+        raw = source.loc[patient_id]
+        raw_diagnosis_key = _normal_text(raw["diagnosis"]).casefold()
+        source_diagnosis = diagnosis_aliases.get(raw_diagnosis_key)
+        if source_diagnosis is None:
+            add_issue(row, "diagnosis", row["diagnosis"], raw["diagnosis"], str(cfg.FRAIWAN_SOURCE_XLSX), "UNRECOGNIZED_SOURCE_VALUE")
+        comparisons = {
+            "diagnosis": (row["diagnosis"], source_diagnosis),
+            "age": (_normal_age(row["age"]), _normal_age(raw["age"])),
+            "gender": (_normal_text(row["gender"]).upper(), _normal_text(raw["gender"]).upper()),
+            "zone": (_normal_text(row["zone"]).replace(" ", "").upper(), _normal_text(raw["zone"]).replace(" ", "").upper()),
+            "sound_type": (_normal_text(row["sound_type"]).upper(), _normal_text(raw["sound_type"]).upper()),
+        }
+        for field, (current, original) in comparisons.items():
+            if original is not None and current != original:
+                add_issue(row, field, current, original, str(cfg.FRAIWAN_SOURCE_XLSX))
+        validate_filename(row, issues)
+
+    columns = [
+        "dataset", "audio_id", "patient_uid", "field", "metadata_value",
+        "source_value", "source_reference", "issue",
+    ]
+    report = pd.DataFrame(issues, columns=columns)
+    out = cfg.REPORTS / "metadata_validation.csv"
+    report.to_csv(out, index=False)
+    print(f"  Registros contrastados    : {len(meta)}")
+    print(f"  Incidencias               : {len(report)}")
     print(f"\n  -> {out.relative_to(cfg.ROOT)}")
+    return report
 
-    return exclusions
+
+def validate_filename(row, issues):
+    """Comprueba que nombre, ruta y campos estructurados sean coherentes."""
+    actual_name = Path(row["audio_path"]).name
+    if actual_name != row["filename"]:
+        issues.append({
+            "dataset": row["dataset"], "audio_id": row["audio_id"],
+            "patient_uid": row["patient_uid"], "field": "filename",
+            "metadata_value": row["filename"], "source_value": actual_name,
+            "source_reference": row["audio_path"], "issue": "PATH_FILENAME_MISMATCH",
+        })
+    parts = Path(row["filename"]).stem.split("_")
+    expected = [
+        row["patient_id"], row["diagnosis"], row["zone"], row["device"],
+        row["recording_id"] if row["dataset"] == "ICBHI" else row["filter"],
+    ]
+    if len(parts) != 5:
+        issues.append({
+            "dataset": row["dataset"], "audio_id": row["audio_id"],
+            "patient_uid": row["patient_uid"], "field": "filename",
+            "metadata_value": row["filename"], "source_value": "_".join(expected),
+            "source_reference": row["audio_path"], "issue": "INVALID_FILENAME_STRUCTURE",
+        })
+        return
+    field_names = ["patient_id", "diagnosis", "zone", "device", "recording_or_filter"]
+    for field, current, wanted in zip(field_names, parts, expected):
+        if current != wanted:
+            issues.append({
+                "dataset": row["dataset"], "audio_id": row["audio_id"],
+                "patient_uid": row["patient_uid"], "field": f"filename.{field}",
+                "metadata_value": current, "source_value": wanted,
+                "source_reference": row["audio_path"], "issue": "FILENAME_FIELD_MISMATCH",
+            })
+
+
+def build_manifest(meta, integrity, quality, annotation_validation, metadata_validation, modeling):
+    """Construye una fila contractual por audio para las fases posteriores."""
+    u.section("MANIFIESTO DE ADMISION DE LA FASE 1")
+    integrity_rows = integrity.loc[integrity["row_type"] == "metadata"].set_index("audio_id")
+    quality_rows = quality.set_index("audio_id")
+    annotation_bad = set(annotation_validation["audio_id"].dropna()) - {""}
+    annotation_global = bool((annotation_validation["audio_id"].fillna("") == "").any())
+    metadata_bad = set(metadata_validation["audio_id"].dropna()) - {""}
+    metadata_global = bool((metadata_validation["audio_id"].fillna("") == "").any())
+
+    rows = []
+    for _, item in meta.iterrows():
+        audio_id = item["audio_id"]
+        integ = integrity_rows.loc[audio_id]
+        signal = quality_rows.loc[audio_id]
+        hard = []
+        review = []
+
+        if not bool(integ["passes"]):
+            hard.append("INTEGRITY_FAILURE")
+        if not bool(signal["readable"]):
+            hard.append("UNREADABLE_AUDIO")
+        if int(signal["n_samples"]) == 0:
+            hard.append("EMPTY_AUDIO")
+        if bool(signal["has_non_finite"]):
+            hard.append("NON_FINITE_SAMPLES")
+        if pd.notna(signal["variance"]) and float(signal["variance"]) <= cfg.MIN_VARIANCE:
+            hard.append("FLAT_SIGNAL")
+        if pd.notna(signal["rms"]) and float(signal["rms"]) < cfg.MIN_RMS:
+            hard.append("RMS_BELOW_MINIMUM")
+
+        if pd.notna(signal["saturation_pct"]) and float(signal["saturation_pct"]) > cfg.MAX_SATURATION_PCT:
+            review.append("HIGH_SATURATION")
+        if signal["snr_status"] != "OK":
+            review.append(f"SNR_{signal['snr_status']}")
+        elif pd.notna(signal["snr_proxy_db"]) and float(signal["snr_proxy_db"]) < cfg.MIN_SNR_DB:
+            review.append("LOW_SNR_PROXY")
+        if pd.notna(signal["digital_silence_pct"]) and float(signal["digital_silence_pct"]) >= cfg.MAX_DIGITAL_SILENCE_PCT:
+            review.append("HIGH_DIGITAL_SILENCE")
+        annotation_status = "NOT_AVAILABLE"
+        if item["dataset"] == "ICBHI":
+            annotation_status = "INVALID" if (audio_id in annotation_bad or annotation_global) else "VALID"
+            if annotation_status == "INVALID":
+                review.append("ANNOTATION_INCIDENT")
+        metadata_ok = not (audio_id in metadata_bad or metadata_global)
+        if not metadata_ok:
+            review.append("METADATA_INCIDENT")
+
+        quality_status = "EXCLUDE" if hard else ("REVIEW" if review else "PASS")
+        duplicate = modeling.get(audio_id, {})
+        modeling_status = duplicate.get("modeling_status", "ELIGIBLE")
+        modeling_reason = duplicate.get("modeling_reason", "")
+        eligible = quality_status != "EXCLUDE" and modeling_status == "ELIGIBLE"
+        all_reasons = hard + review + ([modeling_reason] if modeling_reason else [])
+
+        rows.append({
+            "dataset": item["dataset"], "audio_id": audio_id,
+            "patient_uid": item["patient_uid"], "diagnosis": item["diagnosis"],
+            "device": item["device"], "filter": item["filter"], "zone": item["zone"],
+            "audio_path": item["audio_path"], "file_sha256": signal["file_sha256"],
+            "integrity_ok": bool(integ["passes"]), "metadata_ok": metadata_ok,
+            "annotation_status": annotation_status,
+            "quality_status": quality_status,
+            "quality_reasons": ";".join(hard + review),
+            "modeling_status": modeling_status,
+            "modeling_reason": modeling_reason,
+            "pipeline_eligible": eligible,
+            "duplicate_group_id": duplicate.get("duplicate_group_id", ""),
+            "duplicate_type": duplicate.get("duplicate_type", ""),
+            "saturation_pct": signal["saturation_pct"],
+            "rms": signal["rms"], "rms_without_dc": signal["rms_without_dc"],
+            "variance": signal["variance"], "snr_proxy_db": signal["snr_proxy_db"],
+            "snr_status": signal["snr_status"],
+            "digital_silence_pct": signal["digital_silence_pct"],
+            "digital_silence_longest_samples": signal["digital_silence_longest_samples"],
+            "digital_silence_longest_s": signal["digital_silence_longest_s"],
+            "reasons": ";".join(all_reasons),
+        })
+
+    manifest = pd.DataFrame(rows)
+    if len(manifest) != len(meta) or manifest["audio_id"].nunique() != len(meta):
+        raise RuntimeError("El manifiesto no contiene exactamente una fila por audio_id")
+    manifest.to_csv(cfg.PHASE1_MANIFEST, index=False)
+    print("  Calidad:")
+    for status, count in manifest["quality_status"].value_counts().items():
+        print(f"    {status:<10} {count:>5}")
+    print("  Elegibilidad para modelado:")
+    for status, count in manifest["modeling_status"].value_counts().items():
+        print(f"    {status:<28} {count:>5}")
+    print(f"  Admitidos por el pipeline : {int(manifest['pipeline_eligible'].sum())}")
+    print(f"\n  -> {cfg.PHASE1_MANIFEST.relative_to(cfg.ROOT)}")
+    return manifest
 
 
 # ---------------------------------------------------------------------------
@@ -475,22 +967,35 @@ def main():
     pending = cfg.pending_parameters()
     if pending:
         print(f"\n  Parametros sin fijar ({len(pending)}): {', '.join(pending)}")
-        print("  Los umbrales de admision en None no excluyen ninguna grabacion.")
+        print("  Corresponden a fases posteriores y no afectan la verificacion actual.")
 
     integrity = step_1a_integrity(meta)
-    cycles, anomalies = step_1b_annotations(meta)
+    cycles, cycle_summary, annotation_validation = step_1b_annotations(meta)
     quality = step_1c_signal_quality(meta)
-    exclusions = write_exclusions(quality)
+    duplicates, modeling = step_1d_duplicates(quality)
+    metadata_validation = step_1e_metadata_sources(meta)
+    manifest = build_manifest(
+        meta, integrity, quality, annotation_validation, metadata_validation, modeling
+    )
 
     u.section("RESUMEN DE LA FASE 1")
-    print(f"  Integridad    : {int(integrity['passes'].sum())}/{len(integrity)} sin discrepancias")
-    print(f"  Anotaciones   : {len(cycles)} ciclos, {len(anomalies)} anomalias")
+    checked = integrity.loc[integrity["row_type"] == "metadata"]
+    print(f"  Integridad    : {int(checked['passes'].sum())}/{len(checked)} sin discrepancias")
+    print(f"  Anotaciones   : {len(cycles)} ciclos, {len(annotation_validation)} incidencias")
     print(f"  Calidad       : {int(quality['readable'].sum())}/{len(quality)} legibles")
-    print(f"  Admitidos     : {len(quality) - len(exclusions)}")
-    print(f"  Excluidos     : {len(exclusions)}")
+    print(f"  Duplicados    : {duplicates['duplicate_group_id'].nunique()} grupos, {len(duplicates)} archivos")
+    print(f"  Metadata      : {len(metadata_validation)} incidencias")
+    print(f"  PASS          : {(manifest['quality_status'] == 'PASS').sum()}")
+    print(f"  REVIEW        : {(manifest['quality_status'] == 'REVIEW').sum()}")
+    print(f"  EXCLUDE       : {(manifest['quality_status'] == 'EXCLUDE').sum()}")
+    print(f"  Elegibles     : {int(manifest['pipeline_eligible'].sum())}")
 
-    return {"integrity": integrity, "cycles": cycles,
-            "quality": quality, "exclusions": exclusions}
+    return {
+        "integrity": integrity, "cycles": cycles, "cycle_summary": cycle_summary,
+        "annotation_validation": annotation_validation, "quality": quality,
+        "duplicates": duplicates, "metadata_validation": metadata_validation,
+        "manifest": manifest,
+    }
 
 
 if __name__ == "__main__":
