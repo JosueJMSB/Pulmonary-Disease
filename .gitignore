@@ -66,6 +66,21 @@ $RECYCLE.BIN/
 *.swp
 
 # ---------------------------------------------------------------
+# Datos generados por el pipeline de preprocesamiento
+# ---------------------------------------------------------------
+# El audio procesado y los segmentos NO se versionan: son derivables,
+# se regeneran ejecutando el pipeline sobre los datos originales.
+# Ocupan ~1.3 GB. Se conserva unicamente el inventario de segmentos,
+# que es texto y constituye el registro de trazabilidad.
+
+# Nota: git no desciende en un directorio excluido, por lo que la
+# excepcion debe abrirse paso nivel a nivel hasta el archivo.
+preprocessing/data/*
+!preprocessing/data/final/
+preprocessing/data/final/*
+!preprocessing/data/final/segments.csv
+
+# ---------------------------------------------------------------
 # Salidas de experimentos (descomenta cuando empieces a entrenar)
 # ---------------------------------------------------------------
 # models/
