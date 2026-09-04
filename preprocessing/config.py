@@ -88,6 +88,7 @@ R3_BAND_ENERGY = REPORTS_P3 / "3a_band_energy.csv"
 R3_STFT_RESOLUTION = REPORTS_P3 / "3b_stft_resolution.csv"
 R3_DENOISING_SWEEP = REPORTS_P3 / "3b_denoising_sweep.csv"
 R3_DENOISING_METRICS = REPORTS_P3 / "3b_denoising_metrics.csv"
+R3_CALIBRATION_PROVENANCE = REPORTS_P3 / "calibration_provenance.csv"
 R3_RMS_DISTRIBUTION = REPORTS_P3 / "3c_rms_distribution.csv"
 R3_NORMALIZATION = REPORTS_P3 / "3c_normalization.csv"
 PHASE3_MANIFEST = REPORTS_P3 / "manifest.csv"
@@ -234,7 +235,9 @@ CYCLE_GUARD_MS = 100
 
 # Restricciones de la regla de seleccion. La SNR proxy por percentiles NO se
 # usa para elegir (crece con alpha sin optimo interior: mide su propia
-# agresividad). Se maximiza la SNR de hueco entre ciclos, sujeta a estas cotas.
+# agresividad). Se maximiza el cociente de potencia ciclo-hueco, sujeto a
+# conservar tanto los ciclos completos como sus eventos adventicios y a
+# limitar el ruido musical y la distorsion espectral en la banda util.
 #
 # Se restringe sobre la media Y sobre el percentil 10, no solo sobre la media:
 # medido en la calibracion, la correlacion media (0.973 con alpha=4.0) oculta
@@ -243,19 +246,37 @@ CYCLE_GUARD_MS = 100
 # rejilla; el minimo se reporta para trazabilidad pero no restringe, porque es
 # practicamente el mismo con alpha=3.0 que con 5.0 y por tanto no discrimina
 # entre configuraciones.
-MIN_CYCLE_CORRELATION = 0.90        # media, dentro de los ciclos anotados
-MIN_CYCLE_CORRELATION_P10 = 0.90    # percentil 10 entre grabaciones
+MIN_CYCLE_CORRELATION = 0.95        # media, dentro de los ciclos anotados
+MIN_CYCLE_CORRELATION_P10 = 0.95    # percentil 10 entre grabaciones
+MIN_CRACKLE_CORRELATION = 0.95      # media en ciclos con crepitantes
+MIN_CRACKLE_CORRELATION_P10 = 0.95  # percentil 10 en ciclos con crepitantes
+MIN_WHEEZE_CORRELATION = 0.95       # media en ciclos con sibilancias
+MIN_WHEEZE_CORRELATION_P10 = 0.95   # percentil 10 en ciclos con sibilancias
 MAX_MUSICAL_NOISE_RATIO = 1.5       # media de la razon de curtosis (despues/antes)
 MAX_MUSICAL_NOISE_RATIO_P90 = 2.0   # percentil 90 entre grabaciones
+MAX_SPECTRAL_DISTORTION_DB = 9.0    # media en 50-1800 Hz
+MAX_SPECTRAL_DISTORTION_DB_P90 = 10.0
+
+# Si varias configuraciones quedan a menos de este margen del mejor cociente
+# ciclo-hueco, gana la que mejor preserve el peor p10 entre ciclos, crepitantes
+# y sibilancias. Evita escoger el borde mas agresivo por una mejora marginal.
+POWER_RATIO_TOLERANCE_DB = 0.20
+
+# Umbrales por grabacion. No excluyen archivos: marcan dn_reliable=False para
+# que una comparacion posterior conserve el mismo subconjunto en ambas ramas.
+MIN_RECORDING_CYCLE_CORRELATION = 0.90
+MIN_RECORDING_EVENT_CORRELATION = 0.90
+MAX_RECORDING_MUSICAL_NOISE_RATIO = 2.0
+MAX_RECORDING_SPECTRAL_DISTORTION_DB = 10.0
 
 # Fijados tras la calibracion sobre 46 pacientes (117 grabaciones de ICBHI con
 # hueco anotado suficiente). Todos los numeros citados salen de
 # reports/phase3/3b_stft_resolution.csv y 3b_denoising_sweep.csv.
 #
 #   Resolucion   las seis combinaciones dan metricas casi identicas con
-#                alpha=1.5 (SNR 1.96-2.01 dB): la resolucion apenas importa a
-#                esa agresividad. Se elige 256/192 (64 ms, 75 % de solape) en
-#                vez del optimo nominal por SNR (512/256, que gana 0.027 dB)
+#                alpha=1.5 (cociente 1.96-2.01 dB). Se elige 256/192
+#                (64 ms, 75 % de solape) en vez del maximo nominal 512/256,
+#                que solo gana 0.027 dB,
 #                porque 512/256 es peor en las cuatro metricas de conservacion:
 #                correlacion 0.9970 vs 0.9980, crepitantes 0.9977 vs 0.9984,
 #                sibilancias 0.9957 vs 0.9970 y distorsion 3.53 vs 2.49 dB. El
@@ -263,36 +284,28 @@ MAX_MUSICAL_NOISE_RATIO_P90 = 2.0   # percentil 90 entre grabaciones
 #                igual, y una ventana mas corta preserva mejor los crepitantes,
 #                que son transitorios de 5-20 ms.
 #
-#   Agresividad  cycle_gap_snr_proxy_db crece con alpha en toda la rejilla sin
-#                darse la vuelta: el limite no lo pone el objetivo, lo ponen
-#                las restricciones. La regla automatica elige percentil=20 con
-#                alpha=4.0, que deja el ruido musical en 1.452 frente a un
-#                techo de 1.5: solo un 3 % de margen. Se retrocede al
-#                percentil 15 con el mismo alpha, que cuesta 0.19 dB de
-#                objetivo (2.48 vs 2.67 dB, un 7 % de la ganancia) y compra
-#                margen en las cuatro restricciones a la vez:
+#   Agresividad  el maximo admisible es percentil=15 con alpha=5.0. La regla
+#                robusta admite hasta 0.20 dB de diferencia en el objetivo y
+#                elige el mejor peor-p10 entre ciclos, crepitantes y
+#                sibilancias. Por eso selecciona percentil=15 con alpha=4.0:
 #
-#                             p15/a4.0      p20/a4.0    limite
-#                  objetivo    2.483 dB      2.668 dB     -
-#                  corr media  0.9775        0.9665       0.90
-#                  corr p10    0.9608        0.9404       0.90
-#                  crepit. p10 0.9614        0.9434       -
-#                  sibilan.p10 0.9558        0.9377       -
-#                  musical     1.3245        1.4522       1.50
-#                  musical p90 1.6083        1.8523       2.00
-#                  distorsion  8.25 dB       9.97 dB      -
+#                             p15/a4.0      p15/a5.0    limite
+#                  objetivo    2.424 dB      2.536 dB     margen 0.20
+#                  corr p10    0.9700        0.9582       0.95
+#                  crepit. p10 0.9711        0.9601       0.95
+#                  sibilan.p10 0.9697        0.9588       0.95
+#                  musical     1.3217        1.4001       1.50
+#                  musical p90 1.6328        1.8015       2.00
+#                  distorsion  7.58 dB       8.83 dB      9.00
 #
-#                Es el mismo criterio que descarto alpha=4.5: no operar pegado
-#                a una restriccion por una ganancia marginal del objetivo.
-#
-#   Suelo        beta=0.002 gana 0.023 dB de objetivo sobre beta=0.01 y pierde
-#                en todo lo demas -correlacion 0.9627 vs 0.9665, p10 0.9334 vs
-#                0.9404, distorsion 11.16 vs 9.97 dB-. Se mantiene 0.01.
+#   Suelo        con p15/a4.0, beta=0.05 pierde solo 0.050 dB frente a 0.01,
+#                pero mejora el peor p10 (0.9756 vs 0.9697), reduce la
+#                distorsion (6.04 vs 7.58 dB) y baja el ruido musical.
 STFT_NPERSEG = 256
 STFT_NOVERLAP = 192
 NOISE_PCT = 15
 OVERSUBTRACTION = 4.0
-SPECTRAL_FLOOR = 0.01
+SPECTRAL_FLOOR = 0.05
 
 # --- 3c Normalizacion de amplitud ---
 PEAK_CEILING = 0.95             # el pico final no puede rebasarlo

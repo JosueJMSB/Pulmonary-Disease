@@ -34,6 +34,8 @@ None.
 """
 
 import argparse
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -41,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import pandas as pd
+import scipy
 import soundfile as sf
 from scipy.signal import butter, istft, sosfiltfilt, sosfreqz, stft
 
@@ -61,12 +64,97 @@ CENTRAL_NOISE_PCT = 10
 CENTRAL_OVERSUBTRACTION = 1.5
 CENTRAL_SPECTRAL_FLOOR = 0.01
 
-# Una grabacion de ICBHI sirve como referencia de ruido real si al menos este
-# margen de su duracion queda fuera de los ciclos anotados, con al menos un
-# segundo a cada lado para que la medicion tenga sustento.
+# Una grabacion de ICBHI permite calcular el contraste ciclo-hueco si al menos
+# este margen queda fuera de los ciclos anotados, con un segundo minimo de
+# muestras en cada region. El hueco no se interpreta como ruido puro.
 ANNOTATION_GAP_FRACTION = 0.05
 MIN_SECONDS_PER_SIDE = 1.0
 MIN_EVENT_SAMPLES = 10      # muestras minimas para medir un evento adventicio
+
+
+CALIBRATION_CONFIG_NAMES = (
+    "TARGET_SR", "CALIBRATION_FRACTION", "CALIBRATION_SEED",
+    "BANDPASS_LOW", "BANDPASS_HIGH", "BANDPASS_ORDER", "CYCLE_GUARD_MS",
+    "STFT_WINDOW", "STFT_CANDIDATES", "OVERLAP_FRACTION_CANDIDATES",
+    "STFT_NPERSEG", "STFT_NOVERLAP", "NOISE_PCT_CANDIDATES",
+    "OVERSUBTRACTION_CANDIDATES", "SPECTRAL_FLOOR_CANDIDATES",
+    "MIN_CYCLE_CORRELATION", "MIN_CYCLE_CORRELATION_P10",
+    "MIN_CRACKLE_CORRELATION", "MIN_CRACKLE_CORRELATION_P10",
+    "MIN_WHEEZE_CORRELATION", "MIN_WHEEZE_CORRELATION_P10",
+    "MAX_MUSICAL_NOISE_RATIO", "MAX_MUSICAL_NOISE_RATIO_P90",
+    "MAX_SPECTRAL_DISTORTION_DB", "MAX_SPECTRAL_DISTORTION_DB_P90",
+    "POWER_RATIO_TOLERANCE_DB",
+)
+
+
+def calibration_config_sha256():
+    """Huella de los valores que gobiernan la calibracion, no del archivo entero."""
+    values = {name: getattr(cfg, name) for name in CALIBRATION_CONFIG_NAMES}
+    payload = json.dumps(values, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def calibration_provenance(meta):
+    """Identidad exacta del codigo, entrada e informes usados al calibrar."""
+    return {
+        "phase3_code_sha256": u.file_sha256(Path(__file__)),
+        "calibration_config_sha256": calibration_config_sha256(),
+        "phase2_resampling_sha256": u.file_sha256(cfg.R2_RESAMPLING),
+        "calibration_patients_sha256": u.file_sha256(cfg.R3_CALIBRATION),
+        "stft_resolution_sha256": u.file_sha256(cfg.R3_STFT_RESOLUTION),
+        "denoising_sweep_sha256": u.file_sha256(cfg.R3_DENOISING_SWEEP),
+        "rms_distribution_sha256": u.file_sha256(cfg.R3_RMS_DISTRIBUTION),
+        "n_input_recordings": int(len(meta)),
+        "numpy_version": np.__version__,
+        "pandas_version": pd.__version__,
+        "scipy_version": scipy.__version__,
+    }
+
+
+def write_calibration_provenance(meta):
+    row = calibration_provenance(meta)
+    pd.DataFrame([row]).to_csv(cfg.R3_CALIBRATION_PROVENANCE, index=False)
+    return row
+
+
+def validate_calibration_provenance(meta):
+    """Impide procesar con informes generados por otro codigo u otra entrada."""
+    if not cfg.R3_CALIBRATION_PROVENANCE.exists():
+        raise FileNotFoundError(
+            f"No existe {cfg.R3_CALIBRATION_PROVENANCE}. Ejecute --calibrar."
+        )
+    stored = pd.read_csv(cfg.R3_CALIBRATION_PROVENANCE, dtype=str).iloc[0].to_dict()
+    current = {key: str(value) for key, value in calibration_provenance(meta).items()}
+    mismatches = [key for key, value in current.items() if stored.get(key) != value]
+    if mismatches:
+        raise RuntimeError(
+            "La calibracion no corresponde al codigo o a las entradas actuales: "
+            + ", ".join(mismatches)
+            + ". Ejecute de nuevo phase3_cleaning.py --calibrar."
+        )
+
+
+def validate_selected_configuration():
+    """Comprueba que la configuracion final fue evaluada y aprobo las restricciones."""
+    sweep = pd.read_csv(cfg.R3_DENOISING_SWEEP)
+    selected = sweep.loc[
+        (sweep["nperseg"] == cfg.STFT_NPERSEG)
+        & (sweep["noverlap"] == cfg.STFT_NOVERLAP)
+        & (sweep["noise_pct"] == cfg.NOISE_PCT)
+        & np.isclose(sweep["oversubtraction"], cfg.OVERSUBTRACTION)
+        & np.isclose(sweep["spectral_floor"], cfg.SPECTRAL_FLOOR)
+    ]
+    if selected.empty:
+        raise RuntimeError(
+            "La configuracion final no aparece como combinacion exacta en "
+            "3b_denoising_sweep.csv. Ejecute --calibrar."
+        )
+    approved = selected["cumple_restricciones"].astype(str).str.lower().eq("true")
+    if not approved.any():
+        raise RuntimeError(
+            "La configuracion final aparece en el barrido, pero no cumple las "
+            "restricciones de conservacion. Revise config.py."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -235,10 +323,10 @@ def annotation_gap_recordings():
     return set(summary.loc[summary["coverage_pct"] < threshold, "audio_id"])
 
 
-def cycle_gap_snr_proxy_db(x, signal_mask, gap_mask):
-    """Cociente de energia entre los ciclos anotados y el hueco entre ellos.
+def cycle_gap_power_ratio_db(x, signal_mask, gap_mask):
+    """Cociente de potencia entre los ciclos anotados y el hueco entre ellos.
 
-        cycle_gap_snr_proxy_db = 10 * log10( <x^2>_ciclo / <x^2>_hueco )
+        cycle_gap_power_ratio_db = 10 * log10( <x^2>_ciclo / <x^2>_hueco )
 
     donde <>_ciclo promedia sobre las muestras dentro de un ciclo anotado y
     <>_hueco sobre las que estan a mas de CYCLE_GUARD_MS de cualquier limite
@@ -494,7 +582,7 @@ def recording_denoising_metrics(audio_id, x_bp, x_dn, nperseg, noverlap, sr=None
                     else float("nan"))
 
     return {
-        "cycle_gap_snr_proxy_db": cycle_gap_snr_proxy_db(x_dn, signal, gap),
+        "cycle_gap_power_ratio_db": cycle_gap_power_ratio_db(x_dn, signal, gap),
         "cycle_correlation": correlation_in_mask(x_bp, x_dn, signal),
         "crackle_correlation": (correlation_in_mask(x_bp, x_dn, crackles)
                                  if crackles.sum() >= MIN_EVENT_SAMPLES else float("nan")),
@@ -526,7 +614,7 @@ def _evaluate_denoising(gap_meta, nperseg, noverlap, noise_pct, alpha, beta):
     0.84, y una regla que solo mire la media no lo ve.
     """
     collected = {k: [] for k in (
-        "cycle_gap_snr_proxy_db", "cycle_correlation", "crackle_correlation",
+        "cycle_gap_power_ratio_db", "cycle_correlation", "crackle_correlation",
         "wheeze_correlation", "musical_noise_ratio", "spectral_distortion_db",
         "snr_proxy_delta_db",
     )}
@@ -540,7 +628,7 @@ def _evaluate_denoising(gap_meta, nperseg, noverlap, noise_pct, alpha, beta):
         for key, value in metrics.items():
             collected[key].append(value)
 
-    snr_mean, _, _, snr_min, _, snr_n = _aggregate(collected["cycle_gap_snr_proxy_db"])
+    ratio_mean, _, _, ratio_min, _, ratio_n = _aggregate(collected["cycle_gap_power_ratio_db"])
     cyc_mean, cyc_p10, _, cyc_min, _, _ = _aggregate(collected["cycle_correlation"])
     cra_mean, cra_p10, _, cra_min, _, cra_n = _aggregate(collected["crackle_correlation"])
     whe_mean, whe_p10, _, whe_min, _, whe_n = _aggregate(collected["wheeze_correlation"])
@@ -549,9 +637,9 @@ def _evaluate_denoising(gap_meta, nperseg, noverlap, noise_pct, alpha, beta):
     pro_mean, _, _, _, _, _ = _aggregate(collected["snr_proxy_delta_db"])
 
     return {
-        "n_recordings": len(gap_meta), "n_snr": snr_n,
+        "n_recordings": len(gap_meta), "n_power_ratio": ratio_n,
         "n_crackle_recordings": cra_n, "n_wheeze_recordings": whe_n,
-        "cycle_gap_snr_proxy_db": snr_mean, "cycle_gap_snr_proxy_db_min": snr_min,
+        "cycle_gap_power_ratio_db": ratio_mean, "cycle_gap_power_ratio_db_min": ratio_min,
         "cycle_correlation": cyc_mean, "cycle_correlation_p10": cyc_p10,
         "cycle_correlation_min": cyc_min,
         "crackle_correlation": cra_mean, "crackle_correlation_p10": cra_p10,
@@ -566,11 +654,38 @@ def _evaluate_denoising(gap_meta, nperseg, noverlap, noise_pct, alpha, beta):
 
 
 def satisfies_constraints(row):
-    """Restricciones sobre la media y sobre el percentil, no solo la media."""
+    """Criterios de conservacion que una configuracion debe cumplir."""
     return (row["cycle_correlation"] >= cfg.MIN_CYCLE_CORRELATION
             and row["cycle_correlation_p10"] >= cfg.MIN_CYCLE_CORRELATION_P10
+            and row["crackle_correlation"] >= cfg.MIN_CRACKLE_CORRELATION
+            and row["crackle_correlation_p10"] >= cfg.MIN_CRACKLE_CORRELATION_P10
+            and row["wheeze_correlation"] >= cfg.MIN_WHEEZE_CORRELATION
+            and row["wheeze_correlation_p10"] >= cfg.MIN_WHEEZE_CORRELATION_P10
             and row["musical_noise_ratio"] <= cfg.MAX_MUSICAL_NOISE_RATIO
-            and row["musical_noise_ratio_p90"] <= cfg.MAX_MUSICAL_NOISE_RATIO_P90)
+            and row["musical_noise_ratio_p90"] <= cfg.MAX_MUSICAL_NOISE_RATIO_P90
+            and row["spectral_distortion_db"] <= cfg.MAX_SPECTRAL_DISTORTION_DB
+            and row["spectral_distortion_db_p90"] <= cfg.MAX_SPECTRAL_DISTORTION_DB_P90)
+
+
+def select_robust_candidate(table):
+    """Elige conservacion antes que una mejora marginal del contraste."""
+    valid = table.loc[table.apply(satisfies_constraints, axis=1)]
+    ranked = valid if len(valid) else table
+    best_objective = float(ranked["cycle_gap_power_ratio_db"].max())
+    near = ranked.loc[
+        ranked["cycle_gap_power_ratio_db"]
+        >= best_objective - cfg.POWER_RATIO_TOLERANCE_DB
+    ].copy()
+    near["conservation_p10_min"] = near[
+        ["cycle_correlation_p10", "crackle_correlation_p10",
+         "wheeze_correlation_p10"]
+    ].min(axis=1)
+    selected = near.sort_values(
+        ["conservation_p10_min", "spectral_distortion_db_p90",
+         "musical_noise_ratio_p90", "oversubtraction"],
+        ascending=[False, True, True, True],
+    ).iloc[0]
+    return selected, len(valid), len(near), best_objective
 
 
 def dn_reliability(metrics):
@@ -589,11 +704,23 @@ def dn_reliability(metrics):
     """
     reasons = []
     correlation = metrics.get("cycle_correlation", float("nan"))
+    crackle = metrics.get("crackle_correlation", float("nan"))
+    wheeze = metrics.get("wheeze_correlation", float("nan"))
     musical = metrics.get("musical_noise_ratio", float("nan"))
-    if np.isfinite(correlation) and correlation < cfg.MIN_CYCLE_CORRELATION:
+    distortion = metrics.get("spectral_distortion_db", float("nan"))
+    if (np.isfinite(correlation)
+            and correlation < cfg.MIN_RECORDING_CYCLE_CORRELATION):
         reasons.append("LOW_CYCLE_CORRELATION")
-    if np.isfinite(musical) and musical > cfg.MAX_MUSICAL_NOISE_RATIO_P90:
+    if np.isfinite(crackle) and crackle < cfg.MIN_RECORDING_EVENT_CORRELATION:
+        reasons.append("LOW_CRACKLE_CORRELATION")
+    if np.isfinite(wheeze) and wheeze < cfg.MIN_RECORDING_EVENT_CORRELATION:
+        reasons.append("LOW_WHEEZE_CORRELATION")
+    if (np.isfinite(musical)
+            and musical > cfg.MAX_RECORDING_MUSICAL_NOISE_RATIO):
         reasons.append("HIGH_MUSICAL_NOISE")
+    if (np.isfinite(distortion)
+            and distortion > cfg.MAX_RECORDING_SPECTRAL_DISTORTION_DB):
+        reasons.append("HIGH_SPECTRAL_DISTORTION")
     return (not reasons), ";".join(reasons)
 
 
@@ -637,21 +764,23 @@ def sweep_denoising(calib_meta, nperseg, noverlap):
             metrics = _evaluate_denoising(gap_meta, nperseg, noverlap, pct, alpha,
                                            CENTRAL_SPECTRAL_FLOOR)
             rows.append({"stage": "agresividad", "noise_pct": pct, "oversubtraction": alpha,
-                         "spectral_floor": CENTRAL_SPECTRAL_FLOOR, **metrics})
+                         "spectral_floor": CENTRAL_SPECTRAL_FLOOR,
+                         "nperseg": nperseg, "noverlap": noverlap, **metrics})
 
     stage1 = pd.DataFrame(rows)
-    valid = stage1.loc[stage1.apply(satisfies_constraints, axis=1)]
-    ranked = valid if len(valid) else stage1
-    top = ranked.sort_values("cycle_gap_snr_proxy_db", ascending=False).iloc[0]
+    top, n_valid, n_near, best_objective = select_robust_candidate(stage1)
     pct_chosen, alpha_chosen = top["noise_pct"], top["oversubtraction"]
     print(f"  -> percentil={pct_chosen}  alpha={alpha_chosen}"
-          f"  {'(cumple las restricciones)' if len(valid) else '(NINGUNA config. las cumple)'}")
+          f"  {'(cumple las restricciones)' if n_valid else '(NINGUNA config. las cumple)'}")
+    print(f"     {n_near} candidatas quedaron a <= {cfg.POWER_RATIO_TOLERANCE_DB} dB"
+          f" del maximo ({best_objective:.3f} dB); decide la conservacion p10.")
 
     print("  Tramo 2: suelo espectral, con percentil y alpha ya elegidos")
     for beta in cfg.SPECTRAL_FLOOR_CANDIDATES:
         metrics = _evaluate_denoising(gap_meta, nperseg, noverlap, pct_chosen, alpha_chosen, beta)
         rows.append({"stage": "suelo", "noise_pct": pct_chosen, "oversubtraction": alpha_chosen,
-                     "spectral_floor": beta, **metrics})
+                     "spectral_floor": beta,
+                     "nperseg": nperseg, "noverlap": noverlap, **metrics})
 
     return pd.DataFrame(rows)
 
@@ -883,54 +1012,85 @@ def run_calibration():
     u.section("FASE 3b - BARRIDO DE RESOLUCION (STFT)")
     resolution_df = sweep_stft_resolution(calib_meta)
     resolution_df.to_csv(cfg.R3_STFT_RESOLUTION, index=False)
-    columns = ["nperseg", "noverlap", "window_ms", "cycle_gap_snr_proxy_db",
+    columns = ["nperseg", "noverlap", "window_ms", "cycle_gap_power_ratio_db",
                "cycle_correlation", "crackle_correlation", "wheeze_correlation",
                "musical_noise_ratio", "spectral_distortion_db"]
     print(resolution_df[columns].round(4).to_string(index=False))
-    best_res = resolution_df.sort_values("cycle_gap_snr_proxy_db", ascending=False).iloc[0]
-    print(f"  Recomendado: nperseg={int(best_res['nperseg'])}"
-          f" noverlap={int(best_res['noverlap'])}"
-          f" ({best_res['window_ms']} ms, {best_res['overlap_fraction']:.0%} solape)")
+    objective_best = resolution_df.sort_values(
+        "cycle_gap_power_ratio_db", ascending=False
+    ).iloc[0]
+    configured = resolution_df.loc[
+        (resolution_df["nperseg"] == cfg.STFT_NPERSEG)
+        & (resolution_df["noverlap"] == cfg.STFT_NOVERLAP)
+    ]
+    if cfg.STFT_NPERSEG is not None and cfg.STFT_NOVERLAP is not None:
+        if configured.empty:
+            raise ValueError(
+                "STFT_NPERSEG/STFT_NOVERLAP no pertenecen a la rejilla calibrada."
+            )
+        selected_res = configured.iloc[0]
+        print(f"  Maximo del objetivo: nperseg={int(objective_best['nperseg'])}"
+              f" noverlap={int(objective_best['noverlap'])}")
+        print(f"  Resolucion fijada y usada en el barrido:"
+              f" nperseg={int(selected_res['nperseg'])}"
+              f" noverlap={int(selected_res['noverlap'])}"
+              f" ({selected_res['window_ms']} ms,"
+              f" {selected_res['overlap_fraction']:.0%} solape)")
+    else:
+        selected_res = objective_best
+        print(f"  Recomendado: nperseg={int(selected_res['nperseg'])}"
+              f" noverlap={int(selected_res['noverlap'])}"
+              f" ({selected_res['window_ms']} ms,"
+              f" {selected_res['overlap_fraction']:.0%} solape)")
     print(f"  -> {cfg.R3_STFT_RESOLUTION.relative_to(cfg.ROOT)}")
 
     u.section("FASE 3b - BARRIDO DE AGRESIVIDAD Y SUELO ESPECTRAL")
-    nperseg_chosen = int(best_res["nperseg"])
-    noverlap_chosen = int(best_res["noverlap"])
+    nperseg_chosen = int(selected_res["nperseg"])
+    noverlap_chosen = int(selected_res["noverlap"])
     sweep_df = sweep_denoising(calib_meta, nperseg_chosen, noverlap_chosen)
     sweep_df["cumple_restricciones"] = sweep_df.apply(satisfies_constraints, axis=1)
     sweep_df.to_csv(cfg.R3_DENOISING_SWEEP, index=False)
     columns = ["stage", "noise_pct", "oversubtraction", "spectral_floor",
-               "cycle_gap_snr_proxy_db", "cycle_correlation", "cycle_correlation_p10",
+               "nperseg", "noverlap", "cycle_gap_power_ratio_db",
+               "cycle_correlation", "cycle_correlation_p10",
                "cycle_correlation_min", "crackle_correlation_p10", "wheeze_correlation_p10",
                "musical_noise_ratio", "musical_noise_ratio_p90",
                "spectral_distortion_db", "cumple_restricciones"]
     print(sweep_df[columns].round(4).to_string(index=False))
     print(f"  -> {cfg.R3_DENOISING_SWEEP.relative_to(cfg.ROOT)}")
 
-    valid = sweep_df.loc[sweep_df["cumple_restricciones"]]
-    ranked = valid if len(valid) else sweep_df
-    best = ranked.sort_values("cycle_gap_snr_proxy_db", ascending=False).iloc[0]
-    print(f"\n  Regla de seleccion: maximizar cycle_gap_snr_proxy_db sujeta a")
+    best, n_valid, n_near, best_objective = select_robust_candidate(sweep_df)
+    print(f"\n  Regla de seleccion: maximizar cycle_gap_power_ratio_db sujeta a")
     print(f"    correlacion en ciclo   media >= {cfg.MIN_CYCLE_CORRELATION}"
           f"  y p10 >= {cfg.MIN_CYCLE_CORRELATION_P10}")
+    print(f"    correlacion crepit.    media >= {cfg.MIN_CRACKLE_CORRELATION}"
+          f"  y p10 >= {cfg.MIN_CRACKLE_CORRELATION_P10}")
+    print(f"    correlacion sibil.     media >= {cfg.MIN_WHEEZE_CORRELATION}"
+          f"  y p10 >= {cfg.MIN_WHEEZE_CORRELATION_P10}")
     print(f"    ruido musical          media <= {cfg.MAX_MUSICAL_NOISE_RATIO}"
           f"  y p90 <= {cfg.MAX_MUSICAL_NOISE_RATIO_P90}")
-    print(f"  {'Cumple las restricciones' if len(valid) else 'NINGUNA configuracion las cumple'}"
+    print(f"    distorsion espectral   media <= {cfg.MAX_SPECTRAL_DISTORTION_DB} dB"
+          f"  y p90 <= {cfg.MAX_SPECTRAL_DISTORTION_DB_P90} dB")
+    print(f"  {'Cumple las restricciones' if n_valid else 'NINGUNA configuracion las cumple'}"
           f" -> percentil={best['noise_pct']} alpha={best['oversubtraction']}"
           f" beta={best['spectral_floor']}")
-    print(f"    cycle_gap_snr_proxy = {best['cycle_gap_snr_proxy_db']:.3f} dB"
-          f"  (min {best['cycle_gap_snr_proxy_db_min']:.2f})")
+    print(f"    margen del objetivo    = {best_objective - best['cycle_gap_power_ratio_db']:.3f} dB"
+          f"  (tolerancia {cfg.POWER_RATIO_TOLERANCE_DB} dB, {n_near} candidatas)")
+    print(f"    cycle_gap_power_ratio = {best['cycle_gap_power_ratio_db']:.3f} dB"
+          f"  (min {best['cycle_gap_power_ratio_db_min']:.2f})")
     print(f"    correlacion ciclo    = {best['cycle_correlation']:.4f}"
           f"  (p10 {best['cycle_correlation_p10']:.4f}, min {best['cycle_correlation_min']:.4f})")
     print(f"    crepitantes / sibil. = {best['crackle_correlation']:.4f}"
-          f" / {best['wheeze_correlation']:.4f}  (p10)")
+          f" / {best['wheeze_correlation']:.4f}  (media)")
+    print(f"    p10 crepit. / sibil. = {best['crackle_correlation_p10']:.4f}"
+          f" / {best['wheeze_correlation_p10']:.4f}")
     print(f"    ruido musical        = {best['musical_noise_ratio']:.3f}"
           f"  (p90 {best['musical_noise_ratio_p90']:.3f})")
     print("\n  Nota: snr_proxy_delta_db se reporta por continuidad con la fase 1,"
           " pero NO es apta")
     print("  para elegir: crece con alpha sin optimo interior."
-          " cycle_gap_snr_proxy_db tampoco es")
-    print("  una SNR real -el hueco entre ciclos no garantiza ruido puro-,"
+          " cycle_gap_power_ratio_db no es")
+    print("  una SNR -el hueco entre ciclos no garantiza ruido puro-,"
           " pero su denominador")
     print("  procede de otra region de la senal y por eso no crece de forma mecanica.")
 
@@ -945,6 +1105,11 @@ def run_calibration():
           f"p50={gain_needed.median():.2f}x p90={gain_needed.quantile(.9):.2f}x"
           f" p99={gain_needed.quantile(.99):.2f}x max={gain_needed.max():.2f}x")
     print(f"  -> {cfg.R3_RMS_DISTRIBUTION.relative_to(cfg.ROOT)}")
+
+    provenance = write_calibration_provenance(meta)
+    print(f"  Procedencia de calibracion         :"
+          f" {provenance['phase3_code_sha256'][:12]}...")
+    print(f"  -> {cfg.R3_CALIBRATION_PROVENANCE.relative_to(cfg.ROOT)}")
 
     u.section("FASE 3 - CALIBRACION COMPLETA")
     print("  Revise los informes de reports/phase3/ y fije en config.py:")
@@ -1043,6 +1208,8 @@ def run_full():
     u.section("FASE 3 - LIMPIEZA DE SENAL")
     meta = admitted_recordings()
     calibration_ids = load_calibration_set()
+    validate_calibration_provenance(meta)
+    validate_selected_configuration()
     print(f"  Grabaciones a procesar  : {len(meta)}  (x2 ramas = {2 * len(meta)} archivos)")
     print(f"  Pacientes de calibracion: {len(calibration_ids)}")
 
@@ -1131,8 +1298,14 @@ def run_full():
         "calibration_seed": cfg.CALIBRATION_SEED,
         "min_cycle_correlation": cfg.MIN_CYCLE_CORRELATION,
         "min_cycle_correlation_p10": cfg.MIN_CYCLE_CORRELATION_P10,
+        "min_crackle_correlation": cfg.MIN_CRACKLE_CORRELATION,
+        "min_crackle_correlation_p10": cfg.MIN_CRACKLE_CORRELATION_P10,
+        "min_wheeze_correlation": cfg.MIN_WHEEZE_CORRELATION,
+        "min_wheeze_correlation_p10": cfg.MIN_WHEEZE_CORRELATION_P10,
         "max_musical_noise_ratio": cfg.MAX_MUSICAL_NOISE_RATIO,
         "max_musical_noise_ratio_p90": cfg.MAX_MUSICAL_NOISE_RATIO_P90,
+        "max_spectral_distortion_db": cfg.MAX_SPECTRAL_DISTORTION_DB,
+        "max_spectral_distortion_db_p90": cfg.MAX_SPECTRAL_DISTORTION_DB_P90,
         "corpus_cycle_correlation_mean": float(corr_values.mean()) if len(corr_values) else float("nan"),
         "corpus_cycle_correlation_p10": float(corr_values.quantile(0.10)) if len(corr_values) else float("nan"),
         "corpus_cycle_correlation_min": float(corr_values.min()) if len(corr_values) else float("nan"),

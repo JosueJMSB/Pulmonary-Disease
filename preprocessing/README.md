@@ -270,19 +270,19 @@ ventana/salto/reconstrucción estaría roto y toda medición posterior sería un
 
 Los parámetros no se eligen maximizando la SNR por percentiles: esa métrica crece con la
 agresividad sin límite, porque el propio método reduce el suelo de ruido con el que se calcula.
-Se maximiza en su lugar `cycle_gap_snr_proxy_db` —energía dentro de los ciclos anotados frente
-a la de los huecos entre ellos, con un colchón de 100 ms a cada lado—, sujeta a cuatro
-restricciones: correlación dentro de los ciclos con media ≥ 0.90 **y percentil 10 ≥ 0.90**, y
-ruido musical con media ≤ 1.5 **y percentil 90 ≤ 2.0**. Las restricciones sobre el percentil no
-son redundantes: una correlación media de 0.973 convive con grabaciones concretas en 0.84.
+Se maximiza en su lugar `cycle_gap_power_ratio_db` —potencia dentro de los ciclos anotados
+frente a la de los huecos entre ellos, con un colchón de 100 ms a cada lado—. La configuración
+solo es elegible si conserva los ciclos, crepitancias y sibilancias con media y percentil 10
+≥ 0.95, mantiene el ruido musical dentro de sus límites y restringe la distorsión espectral
+en 50–1800 Hz. Los extremos también se reportan y los casos degradados se marcan individualmente.
 
-Esa métrica **no es una SNR real** y el código y los informes la nombran en consecuencia: el
+Esa métrica **no es una SNR** y el código y los informes la nombran en consecuencia: el
 hueco entre ciclos no garantiza ruido puro. Su valor está en que el denominador procede de una
 región distinta de la señal, y por eso no crece de forma mecánica con α. La justificación
 completa está en `reports/README.md`.
 
-**Cuándo el denoising no es de fiar.** El manifiesto marca con `dn_reliable` las 27 grabaciones
-(2.2 %) en que la rama `dn` quedó dañada. El mecanismo está medido: el ruido se estima como un
+**Cuándo el denoising no es de fiar.** El manifiesto marca con `dn_reliable` las 23 grabaciones
+(1.8 %) en que la rama `dn` requiere revisión. El mecanismo está medido: el ruido se estima como un
 percentil bajo a lo largo del tiempo, así que se degrada cuando el sonido respiratorio es casi
 continuo —ahí ese percentil ya no es ruido sino señal—. Contra la intuición, las más dañadas no
 son las de poca energía en banda sino las de mucha.
@@ -299,6 +299,10 @@ observando solo el 20 % de los pacientes (`reports/phase3/calibration_patients.c
 el corpus completo: en esta fase la partición train/test todavía no existe, de modo que la
 única forma de que esos parámetros no queden ajustados sobre datos que después sean de prueba
 es fijar ahora esa lista como contrato y que la partición posterior la respete.
+
+La ejecución completa verifica además la huella SHA-256 del código, la entrada de fase 2,
+la selección de pacientes y los informes de calibración. Si cualquiera cambió desde
+`--calibrar`, se detiene antes de reemplazar los audios.
 
 **Reemplazo atómico.** Igual que la fase 2, escribe en `data/interim/clean_staging/` (con las
 dos ramas dentro) y solo reemplaza `clean/` si las nueve comprobaciones pasan, incluida que

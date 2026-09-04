@@ -90,13 +90,14 @@ las 1249 grabaciones admitidas por la fase 2. Se ejecuta en dos pasadas:
 | `3b_stft_resolution.csv` | 3b | Barrido de ventana y salto de la STFT, medido solo sobre el subconjunto de calibración. |
 | `3b_denoising_sweep.csv` | 3b | Barrido en dos tramos —agresividad y suelo espectral—, con cada métrica agregada por media, percentil y extremo. La columna `cumple_restricciones` marca qué configuraciones son elegibles. `snr_proxy_delta_db` se reporta por continuidad con la fase 1 pero **no se usa para elegir**: crece con la agresividad sin darse la vuelta. |
 | `3b_denoising_metrics.csv` | 3b | Una fila por grabación del corpus completo (no solo la calibración) con el efecto real del denoising, y la columna `dn_reliable` que marca dónde no es de fiar. |
+| `calibration_provenance.csv` | — | Huellas SHA-256 del código, la entrada y los informes usados en la calibración. La ejecución completa se detiene si alguna no coincide. |
 | `3c_rms_distribution.csv` | 3c | RMS y pico tras el pasa-banda, sobre el subconjunto de calibración. De aquí sale `TARGET_RMS`. |
 | **`manifest.csv`** | — | **El resultado contractual de la fase.** Una fila por audio *y por rama* (2498 filas): ruta de salida, hash, ganancia aplicada, qué límite mandó (`target_rms` / `peak_ceiling` / `max_gain`), los parámetros de denoising cuando la rama es `dn`, y `dn_reliable`. |
 | `validation_summary.csv` | — | El veredicto de la fase (`PASS`/`FAIL`), los parámetros empleados y los conteos de las nueve comprobaciones. |
 
-### Qué mide `cycle_gap_snr_proxy_db`, y qué no
+### Qué mide `cycle_gap_power_ratio_db`, y qué no
 
-    cycle_gap_snr_proxy_db = 10 · log10( ⟨x²⟩_ciclo / ⟨x²⟩_hueco )
+    cycle_gap_power_ratio_db = 10 · log10( ⟨x²⟩_ciclo / ⟨x²⟩_hueco )
 
 donde el numerador promedia sobre las muestras dentro de un ciclo anotado y el denominador
 sobre las que están a más de 100 ms de cualquier límite de ciclo.
@@ -118,13 +119,21 @@ propio sonido, y contarlas como ruido contamina la referencia con señal.
 
 ### La regla de selección de los parámetros de denoising
 
-Se maximiza `cycle_gap_snr_proxy_db` sujeta a cuatro restricciones, sobre la media **y sobre
+Se maximiza `cycle_gap_power_ratio_db` sujeta a restricciones sobre la media **y sobre
 el percentil**:
 
 | Restricción | Media | Percentil |
 |---|---|---|
-| Correlación dentro de los ciclos | ≥ 0.90 | p10 ≥ 0.90 |
+| Correlación dentro de los ciclos | ≥ 0.95 | p10 ≥ 0.95 |
+| Correlación en crepitancias | ≥ 0.95 | p10 ≥ 0.95 |
+| Correlación en sibilancias | ≥ 0.95 | p10 ≥ 0.95 |
 | Ruido musical (razón de curtosis) | ≤ 1.5 | p90 ≤ 2.0 |
+| Distorsión espectral en 50–1800 Hz | ≤ 9 dB | p90 ≤ 10 dB |
+
+No se toma automáticamente el mayor cociente. Entre las configuraciones situadas a no más de
+0.20 dB del máximo válido se elige la que maximiza el menor p10 de conservación entre ciclos,
+crepitancias y sibilancias; la distorsión, el ruido musical y una menor sobresustracción
+resuelven empates. Esta regla evita operar en el borde agresivo por una mejora marginal.
 
 La restricción sobre el percentil no es redundante: medido en la calibración, una correlación
 media de 0.973 convive con grabaciones concretas en 0.84, y una regla que solo mire la media
@@ -138,8 +147,9 @@ procesado espectral.
 
 ### Cuándo el denoising no es de fiar
 
-`dn_reliable` marca las grabaciones donde la rama `dn` quedó dañada, con los mismos umbrales
-de la regla de selección aplicados a la grabación individual: 27 de 1249 (2.2 %). El mecanismo
+`dn_reliable` marca las grabaciones donde la rama `dn` requiere revisión: 23 de 1249 (1.8 %).
+A nivel individual se marca correlación de ciclo o evento menor de 0.90, ruido musical mayor
+de 2.0 o distorsión espectral mayor de 10 dB. El mecanismo
 está medido: la estimación de ruido es un percentil bajo **a lo largo del tiempo**, de modo que
 se degrada cuando el sonido respiratorio es casi continuo —entonces ese percentil ya no es
 ruido sino señal, y sustraerlo multiplicado por α retira contenido real—. Contra la intuición,
