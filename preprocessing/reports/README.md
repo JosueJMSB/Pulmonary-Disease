@@ -9,7 +9,7 @@ sola etapa: resumen la fase completa.
 reports/
 ├── phase1/   Verificación de datos      · 8 informes
 ├── phase2/   Estandarización de señal   · 5 informes
-├── phase3/   Limpieza de señal          · pendiente
+├── phase3/   Limpieza de señal          · 9 informes
 └── figures/  Gráficos, compartidos
 ```
 
@@ -61,11 +61,97 @@ La fase 2 solo reemplaza su salida anterior si `validation_summary.csv` dice `PA
 `FAIL`, el audio de `data/interim/resampled/` sigue siendo el de la ejecución anterior y la
 causa está en las columnas `design_ok`, `tones_ok`, `real_audio_ok` y `structural_ok`.
 
+### Una advertencia sobre `output_sha256` entre ejecuciones
+
+`soundfile`/`libsndfile` escribe un bloque `PEAK` con una marca de tiempo en los WAV de tipo
+`FLOAT`. Eso hace que **el archivo cambie de bytes, y por tanto de SHA-256, cada vez que la
+fase 2 se reejecuta**, aunque las muestras de audio decodificadas sean idénticas —verificado:
+`resample_poly` con los mismos coeficientes produce el mismo array hasta el último bit en
+llamadas independientes—. No es un problema de reproducibilidad de la señal, solo de
+identidad de archivo entre ejecuciones distintas: la comprobación de la fase 3 sigue siendo
+válida porque siempre contrasta contra el `2b_resampling.csv` **de la ejecución de fase 2 más
+reciente**, nunca contra uno de una ejecución anterior.
+
 ---
 
 ## Fase 3 · Limpieza de señal
 
-Pendiente de implementación. La carpeta existe para que la estructura sea visible desde ahora.
+Producidos por [`phase3_cleaning.py`](../phase3_cleaning.py). Produce dos ramas comparables
+—`clean/no_dn/` (pasa-banda + normalización) y `clean/dn/` (además, denoising)— a partir de
+las 1249 grabaciones admitidas por la fase 2. Se ejecuta en dos pasadas:
+`--calibrar` mide y recomienda sin tocar el corpus completo; sin esa bandera, procesa las
+1249 grabaciones con los parámetros ya fijados en `config.py`.
+
+| Informe | Etapa | Contenido |
+|---|---|---|
+| `calibration_patients.csv` | — | El 20 % de los pacientes (238 → 46), estratificado por dataset y diagnóstico, elegido para calibrar los parámetros de 3b y 3c. Es un contrato: la partición train/test que se defina después debe respetar que estos pacientes queden del lado de entrenamiento. |
+| `3a_bandpass_design.csv` | 3a | Respuesta del pasa-banda de una pasada y de las dos que aplica `sosfiltfilt`, medida con `sosfreqz`. Incluye los puntos de −3 dB *efectivos* (no los nominales) y el retardo medido por correlación cruzada. |
+| `3a_band_energy.csv` | 3a | Una fila por grabación: fracción de energía bajo 50 Hz, en banda (50–1800 Hz) y sobre 1800 Hz, antes y después del filtro. `energy_inband_pct_before` es la que importa para saber cuánta energía original sobrevive; `_after` es casi siempre ≈100 % por construcción y no debe leerse como lo mismo. |
+| `3b_stft_resolution.csv` | 3b | Barrido de ventana y salto de la STFT, medido solo sobre el subconjunto de calibración. |
+| `3b_denoising_sweep.csv` | 3b | Barrido en dos tramos —agresividad y suelo espectral—, con cada métrica agregada por media, percentil y extremo. La columna `cumple_restricciones` marca qué configuraciones son elegibles. `snr_proxy_delta_db` se reporta por continuidad con la fase 1 pero **no se usa para elegir**: crece con la agresividad sin darse la vuelta. |
+| `3b_denoising_metrics.csv` | 3b | Una fila por grabación del corpus completo (no solo la calibración) con el efecto real del denoising, y la columna `dn_reliable` que marca dónde no es de fiar. |
+| `3c_rms_distribution.csv` | 3c | RMS y pico tras el pasa-banda, sobre el subconjunto de calibración. De aquí sale `TARGET_RMS`. |
+| **`manifest.csv`** | — | **El resultado contractual de la fase.** Una fila por audio *y por rama* (2498 filas): ruta de salida, hash, ganancia aplicada, qué límite mandó (`target_rms` / `peak_ceiling` / `max_gain`), los parámetros de denoising cuando la rama es `dn`, y `dn_reliable`. |
+| `validation_summary.csv` | — | El veredicto de la fase (`PASS`/`FAIL`), los parámetros empleados y los conteos de las nueve comprobaciones. |
+
+### Qué mide `cycle_gap_snr_proxy_db`, y qué no
+
+    cycle_gap_snr_proxy_db = 10 · log10( ⟨x²⟩_ciclo / ⟨x²⟩_hueco )
+
+donde el numerador promedia sobre las muestras dentro de un ciclo anotado y el denominador
+sobre las que están a más de 100 ms de cualquier límite de ciclo.
+
+**No es una relación señal-ruido y no debe llamarse así.** El hueco entre ciclos no garantiza
+ruido puro: puede contener sonido cardiaco, movimiento o respiración sin anotar. Verificado en
+el corpus, hay grabaciones que dan valores negativos con la correlación intacta en 0.98 —el
+hueco tenía más energía que el propio ciclo, lo que dice algo de la anotación, no del
+denoising—.
+
+Su utilidad está en otra cosa: el denominador procede de una región distinta de la señal y no
+de la propia distribución que se evalúa, de modo que —a diferencia de la SNR por percentiles—
+no crece de forma mecánica al aumentar la agresividad. Sirve para ordenar configuraciones,
+no para afirmar cuánto ruido tiene una grabación.
+
+El colchón de 100 ms existe porque los límites anotados son manuales y el sonido respiratorio
+no empieza ni termina de golpe: las muestras contiguas a un ciclo contienen ataque o caída del
+propio sonido, y contarlas como ruido contamina la referencia con señal.
+
+### La regla de selección de los parámetros de denoising
+
+Se maximiza `cycle_gap_snr_proxy_db` sujeta a cuatro restricciones, sobre la media **y sobre
+el percentil**:
+
+| Restricción | Media | Percentil |
+|---|---|---|
+| Correlación dentro de los ciclos | ≥ 0.90 | p10 ≥ 0.90 |
+| Ruido musical (razón de curtosis) | ≤ 1.5 | p90 ≤ 2.0 |
+
+La restricción sobre el percentil no es redundante: medido en la calibración, una correlación
+media de 0.973 convive con grabaciones concretas en 0.84, y una regla que solo mire la media
+no lo ve. El mínimo se reporta para trazabilidad pero no restringe, porque es prácticamente el
+mismo con α=3.0 que con α=5.0 y por tanto no discrimina entre configuraciones.
+
+La conservación se mide por separado para crepitantes y sibilancias, porque no son igual de
+frágiles: las sibilancias son tonales y concentran energía en bandas estrechas, mientras que
+los crepitantes son transitorios de 5–20 ms y de banda ancha, mucho más sensibles a cualquier
+procesado espectral.
+
+### Cuándo el denoising no es de fiar
+
+`dn_reliable` marca las grabaciones donde la rama `dn` quedó dañada, con los mismos umbrales
+de la regla de selección aplicados a la grabación individual: 27 de 1249 (2.2 %). El mecanismo
+está medido: la estimación de ruido es un percentil bajo **a lo largo del tiempo**, de modo que
+se degrada cuando el sonido respiratorio es casi continuo —entonces ese percentil ya no es
+ruido sino señal, y sustraerlo multiplicado por α retira contenido real—. Contra la intuición,
+las grabaciones más dañadas no son las de poca energía en banda sino las de mucha.
+
+Ninguna se excluye: `no_dn` las conserva intactas y la decisión corresponde al modelado.
+
+### Cómo leer el veredicto
+
+Igual que en la fase 2: `clean/` solo se reemplaza si `validation_summary.csv` dice `PASS`. Si
+dice `FAIL`, la salida anterior (o su ausencia, en una primera ejecución) permanece intacta y
+el intento queda en `manifest_attempt_failed.csv`.
 
 ---
 

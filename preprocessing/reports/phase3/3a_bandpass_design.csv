@@ -1,0 +1,2 @@
+order,low_hz,high_hz,gain_one_pass_50hz_db,gain_one_pass_1800hz_db,gain_two_pass_50hz_db,gain_two_pass_1800hz_db,effective_minus3db_low_hz,effective_minus3db_high_hz,ripple_100_1500hz_db,ripple_ok,attenuation_20hz_db,attenuation_1950hz_db,measured_delay_samples,zero_phase_ok
+4,50,1800,-2.851,-3.024,-5.702,-6.047,55.46,1777.67,0.0277,True,-62.4,-97.33,0,True

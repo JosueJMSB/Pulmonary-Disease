@@ -20,8 +20,6 @@ la version anterior si supera toda la validacion. Si algo falla, la salida
 existente permanece intacta y el error queda documentado.
 """
 
-import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -42,8 +40,7 @@ import utils as u
 # recorte cuando el filtrado produce un ligero rebase por encima de 1.0.
 INTERIM_SUBTYPE = "FLOAT"
 
-STAGING = cfg.INTERIM / "resampled_staging"
-PREVIOUS_SWAP = cfg.INTERIM / "resampled_previous_swap"
+STAGING = u.staging_dir_for(cfg.RESAMPLED)
 
 SPECTRAL_CHECK_SECONDS = 5
 
@@ -322,61 +319,6 @@ def stratified_real_audio_sample(meta):
 
 
 # ---------------------------------------------------------------------------
-# Staging: escritura segura y reemplazo atomico
-# ---------------------------------------------------------------------------
-
-def prepare_staging():
-    """Directorio de staging limpio, con salvaguarda ante una ruta inesperada."""
-    if STAGING.exists():
-        resolved = STAGING.resolve()
-        expected = (cfg.INTERIM / "resampled_staging").resolve()
-        if resolved != expected:
-            raise RuntimeError(
-                f"Ruta de staging inesperada, se aborta por seguridad: {resolved}"
-            )
-        shutil.rmtree(STAGING)
-    STAGING.mkdir(parents=True)
-
-
-def write_atomic(path, y, sr):
-    """Escribe primero un archivo temporal y lo renombra al completar.
-
-    Si el proceso se interrumpe a mitad de la escritura, queda un .part
-    huerfano y nunca un .wav truncado bajo el nombre final. El sufijo ".part"
-    (no ".wav") evita que un intento fallido se cuente como salida valida en
-    el recuento de archivos por glob "*.wav". El formato se declara de forma
-    explicita porque el nombre temporal ya no permite inferirlo de la
-    extension.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
-    sf.write(str(tmp), y.astype(np.float32), sr, subtype=INTERIM_SUBTYPE, format="WAV")
-    os.replace(tmp, path)
-
-
-def swap_staging_into_place():
-    """Reemplazo atomico de resampled/ por resampled_staging/.
-
-    Renombrar es la unica operacion atomica disponible a nivel de sistema de
-    archivos; copiar no lo es. Si el reemplazo falla a medio camino, se
-    restaura la carpeta anterior automaticamente.
-    """
-    had_previous = cfg.RESAMPLED.exists()
-    try:
-        if had_previous:
-            if PREVIOUS_SWAP.exists():
-                shutil.rmtree(PREVIOUS_SWAP)
-            os.replace(cfg.RESAMPLED, PREVIOUS_SWAP)
-        os.replace(STAGING, cfg.RESAMPLED)
-    except OSError:
-        if had_previous and PREVIOUS_SWAP.exists() and not cfg.RESAMPLED.exists():
-            os.replace(PREVIOUS_SWAP, cfg.RESAMPLED)
-        raise
-    if had_previous and PREVIOUS_SWAP.exists():
-        shutil.rmtree(PREVIOUS_SWAP)
-
-
-# ---------------------------------------------------------------------------
 # Procesamiento por archivo
 # ---------------------------------------------------------------------------
 
@@ -480,7 +422,7 @@ def process_recording(row, manifest_row):
                 f"error temporal {time_error_samples:.3f} muestras excede la tolerancia"
             )
 
-        write_atomic(destination, y, cfg.TARGET_SR)
+        u.write_atomic(destination, y, cfg.TARGET_SR, INTERIM_SUBTYPE)
         entry["output_sha256"] = u.file_sha256(destination)
         entry["subtype_out"] = INTERIM_SUBTYPE
         entry["status"] = "OK"
@@ -523,7 +465,7 @@ def run(meta, manifest):
         print(f"  {c['source_sr']:>7} Hz{c['passband_ripple_db']:>12.4f} dB"
               f"{c['stopband_min_attenuation_db']:>12.2f} dB   [{'OK' if ok else 'REVISAR'}]")
 
-    prepare_staging()
+    u.prepare_staging(cfg.RESAMPLED)
 
     manifest_by_id = manifest.set_index("audio_id")
     rows = []
@@ -685,7 +627,7 @@ def main():
         print(f"  Detalle de la causa en {cfg.R2_SUMMARY.relative_to(cfg.ROOT)}")
         return {"report": report, "verdict": "FAIL", "summary": summary}
 
-    swap_staging_into_place()
+    u.swap_staging_into_place(cfg.RESAMPLED)
     report.to_csv(cfg.R2_RESAMPLING, index=False)
     stale = cfg.R2_FAILED_ATTEMPT
     if stale.exists():

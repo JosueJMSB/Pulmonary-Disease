@@ -30,8 +30,14 @@ PREPROC = ROOT / "preprocessing"
 DATA = PREPROC / "data"
 INTERIM = DATA / "interim"
 RESAMPLED = INTERIM / "resampled"
-CLEAN_NO_DN = INTERIM / "clean_no_dn"
-CLEAN_DN = INTERIM / "clean_dn"
+
+# Las dos ramas de la fase 3 comparten un unico padre. Eso convierte su
+# reemplazo atomico en un solo renombrado (CLEAN <-> CLEAN_staging) en vez de
+# un intercambio transaccional de dos directorios hermanos independientes.
+CLEAN = INTERIM / "clean"
+CLEAN_NO_DN = CLEAN / "no_dn"
+CLEAN_DN = CLEAN / "dn"
+
 FINAL = DATA / "final"
 
 DATASETS = (
@@ -74,6 +80,19 @@ R2_SPECTRAL_CHECK = REPORTS_P2 / "2a_spectral_check.csv"
 R2_RESAMPLING = REPORTS_P2 / "2b_resampling.csv"
 R2_FAILED_ATTEMPT = REPORTS_P2 / "2b_resampling_attempt_failed.csv"
 R2_SUMMARY = REPORTS_P2 / "validation_summary.csv"
+
+# Fase 3 - Limpieza de senal
+R3_CALIBRATION = REPORTS_P3 / "calibration_patients.csv"
+R3_BANDPASS_DESIGN = REPORTS_P3 / "3a_bandpass_design.csv"
+R3_BAND_ENERGY = REPORTS_P3 / "3a_band_energy.csv"
+R3_STFT_RESOLUTION = REPORTS_P3 / "3b_stft_resolution.csv"
+R3_DENOISING_SWEEP = REPORTS_P3 / "3b_denoising_sweep.csv"
+R3_DENOISING_METRICS = REPORTS_P3 / "3b_denoising_metrics.csv"
+R3_RMS_DISTRIBUTION = REPORTS_P3 / "3c_rms_distribution.csv"
+R3_NORMALIZATION = REPORTS_P3 / "3c_normalization.csv"
+PHASE3_MANIFEST = REPORTS_P3 / "manifest.csv"
+R3_FAILED_ATTEMPT = REPORTS_P3 / "manifest_attempt_failed.csv"
+R3_SUMMARY = REPORTS_P3 / "validation_summary.csv"
 
 # ---------------------------------------------------------------------------
 # Fase 1c - Calidad de senal
@@ -163,18 +182,130 @@ ANTIALIAS_MAX_TIME_ERROR_SAMPLES = 1.0     # error temporal maximo, en muestras 
 # Fase 3 - Limpieza de senal
 # ---------------------------------------------------------------------------
 
+# Subconjunto de calibracion: se eligen los parametros de 3b y 3c observando
+# solo estas grabaciones, nunca el corpus completo. Es una fraccion de
+# PACIENTES, no de grabaciones, para que los tres modos de filtrado de un
+# mismo paciente de Fraiwan queden siempre del mismo lado. La lista elegida se
+# persiste en reports/phase3/calibration_patients.csv y la particion train/test
+# que se defina mas adelante queda obligada a colocar a estos pacientes en el
+# lado de entrenamiento: en la fase 3 esa particion aun no existe, de modo que
+# "evitar los datos de prueba" solo puede cumplirse fijando ahora el contrato
+# y respetandolo despues.
+CALIBRATION_FRACTION = 0.20
+CALIBRATION_SEED = 20250903
+
+# --- 3a Pasa-banda ---
 BANDPASS_LOW = COMMON_BAND_LOW
 BANDPASS_HIGH = COMMON_BAND_HIGH
 BANDPASS_ORDER = 4
 
-STFT_WINDOW = "hann"
-STFT_NPERSEG = None            # longitud de ventana, a determinar en 3b
-STFT_NOVERLAP = None           # salto entre tramas, a determinar en 3b
-NOISE_PCT = None               # percentil bajo para estimar el ruido por banda
-OVERSUBTRACTION = None         # factor de sobre-sustraccion
-SPECTRAL_FLOOR = None          # suelo espectral
+# sosfiltfilt filtra en ambos sentidos: la respuesta efectiva es |H|^2, de modo
+# que la atenuacion real en los bordes nominales es de 6 dB y no de 3. Se mide
+# y se reporta en 3a_bandpass_design.csv; no se corrige, porque el filtrado de
+# fase cero es un requisito y no una preferencia.
+BANDPASS_RIPPLE_TOL_DB = 0.1       # ondulacion maxima admitida entre 100 y 1500 Hz
 
-TARGET_RMS = None              # objetivo de la normalizacion, a determinar en 3c
+# Umbral de marcado (no de exclusion) por bajo contenido en la banda util.
+# Medido antes de esta fase sobre una muestra estratificada: la fraccion de
+# energia que sobrevive al pasa-banda varia entre 0.095 % y 77.8 % segun la
+# grabacion. 1 % separa el puñado de casos extremos -practicamente sin
+# contenido en banda- del resto de la distribucion; se revisa con
+# reports/phase3/3a_band_energy.csv, que cubre las 1249 grabaciones.
+MIN_INBAND_ENERGY_PCT = 1.0
+
+# --- 3b Denoising (sustraccion espectral) ---
+STFT_WINDOW = "hann"
+
+# Rejillas evaluadas en el modo --calibrar. La rejilla de sobre-sustraccion
+# llega hasta 5.0 para que contenga el punto realmente elegido y el cruce de
+# la restriccion de ruido musical: un valor fijado fuera de lo barrido no es
+# trazable desde el informe.
+STFT_CANDIDATES = (128, 256, 512)              # 32, 64 y 128 ms a 4 kHz
+OVERLAP_FRACTION_CANDIDATES = (0.50, 0.75)
+NOISE_PCT_CANDIDATES = (5, 10, 15, 20)
+OVERSUBTRACTION_CANDIDATES = (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 4.5, 5.0)
+SPECTRAL_FLOOR_CANDIDATES = (0.002, 0.01, 0.05)
+
+# Colchon excluido de la referencia de ruido a cada lado de un ciclo anotado.
+# Los limites son manuales y el sonido respiratorio no empieza ni termina de
+# golpe: las muestras contiguas a un ciclo contienen ataque o caida del propio
+# sonido, y contarlas como ruido contamina la referencia con senal.
+CYCLE_GUARD_MS = 100
+
+# Restricciones de la regla de seleccion. La SNR proxy por percentiles NO se
+# usa para elegir (crece con alpha sin optimo interior: mide su propia
+# agresividad). Se maximiza la SNR de hueco entre ciclos, sujeta a estas cotas.
+#
+# Se restringe sobre la media Y sobre el percentil 10, no solo sobre la media:
+# medido en la calibracion, la correlacion media (0.973 con alpha=4.0) oculta
+# grabaciones concretas que bajan a 0.84. El percentil 10 captura la
+# degradacion sistematica sin que una sola grabacion atipica vete toda la
+# rejilla; el minimo se reporta para trazabilidad pero no restringe, porque es
+# practicamente el mismo con alpha=3.0 que con 5.0 y por tanto no discrimina
+# entre configuraciones.
+MIN_CYCLE_CORRELATION = 0.90        # media, dentro de los ciclos anotados
+MIN_CYCLE_CORRELATION_P10 = 0.90    # percentil 10 entre grabaciones
+MAX_MUSICAL_NOISE_RATIO = 1.5       # media de la razon de curtosis (despues/antes)
+MAX_MUSICAL_NOISE_RATIO_P90 = 2.0   # percentil 90 entre grabaciones
+
+# Fijados tras la calibracion sobre 46 pacientes (117 grabaciones de ICBHI con
+# hueco anotado suficiente). Todos los numeros citados salen de
+# reports/phase3/3b_stft_resolution.csv y 3b_denoising_sweep.csv.
+#
+#   Resolucion   las seis combinaciones dan metricas casi identicas con
+#                alpha=1.5 (SNR 1.96-2.01 dB): la resolucion apenas importa a
+#                esa agresividad. Se elige 256/192 (64 ms, 75 % de solape) en
+#                vez del optimo nominal por SNR (512/256, que gana 0.027 dB)
+#                porque 512/256 es peor en las cuatro metricas de conservacion:
+#                correlacion 0.9970 vs 0.9980, crepitantes 0.9977 vs 0.9984,
+#                sibilancias 0.9957 vs 0.9970 y distorsion 3.53 vs 2.49 dB. El
+#                solape del 75 % gana al del 50 % en las tres ventanas por
+#                igual, y una ventana mas corta preserva mejor los crepitantes,
+#                que son transitorios de 5-20 ms.
+#
+#   Agresividad  cycle_gap_snr_proxy_db crece con alpha en toda la rejilla sin
+#                darse la vuelta: el limite no lo pone el objetivo, lo ponen
+#                las restricciones. La regla automatica elige percentil=20 con
+#                alpha=4.0, que deja el ruido musical en 1.452 frente a un
+#                techo de 1.5: solo un 3 % de margen. Se retrocede al
+#                percentil 15 con el mismo alpha, que cuesta 0.19 dB de
+#                objetivo (2.48 vs 2.67 dB, un 7 % de la ganancia) y compra
+#                margen en las cuatro restricciones a la vez:
+#
+#                             p15/a4.0      p20/a4.0    limite
+#                  objetivo    2.483 dB      2.668 dB     -
+#                  corr media  0.9775        0.9665       0.90
+#                  corr p10    0.9608        0.9404       0.90
+#                  crepit. p10 0.9614        0.9434       -
+#                  sibilan.p10 0.9558        0.9377       -
+#                  musical     1.3245        1.4522       1.50
+#                  musical p90 1.6083        1.8523       2.00
+#                  distorsion  8.25 dB       9.97 dB      -
+#
+#                Es el mismo criterio que descarto alpha=4.5: no operar pegado
+#                a una restriccion por una ganancia marginal del objetivo.
+#
+#   Suelo        beta=0.002 gana 0.023 dB de objetivo sobre beta=0.01 y pierde
+#                en todo lo demas -correlacion 0.9627 vs 0.9665, p10 0.9334 vs
+#                0.9404, distorsion 11.16 vs 9.97 dB-. Se mantiene 0.01.
+STFT_NPERSEG = 256
+STFT_NOVERLAP = 192
+NOISE_PCT = 15
+OVERSUBTRACTION = 4.0
+SPECTRAL_FLOOR = 0.01
+
+# --- 3c Normalizacion de amplitud ---
+PEAK_CEILING = 0.95             # el pico final no puede rebasarlo
+
+# TARGET_RMS: mediana del RMS post-pasabanda sobre el subconjunto de
+# calibracion (281 grabaciones). MAX_GAIN: la ganancia que ese objetivo pide
+# en la rama con denoising (que arranca de un RMS mas bajo, al haberse
+# retirado energia real) tiene p99=18.5x y maximo 37.7x, con solo 3 patrones
+# de un puñado de pacientes por encima de 20x. Un tope de 20x afecta al 1.1 %
+# de las filas (6 de 562, ambas ramas) y son precisamente las grabaciones que
+# conviene marcar para revision, no amplificar sin limite.
+TARGET_RMS = 0.03012
+MAX_GAIN = 20.0
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Estandarizacion temporal
@@ -194,12 +325,36 @@ def ensure_dirs():
         d.mkdir(parents=True, exist_ok=True)
 
 
+# Parametros que la fase 3 debe tener fijados antes de una ejecucion completa.
+# MIN_INBAND_ENERGY_PCT queda fuera deliberadamente: es un umbral de marcado
+# para el informe, no algo de lo que dependa la correccion del procesamiento.
+PHASE3_REQUIRED_PARAMETERS = (
+    "STFT_NPERSEG", "STFT_NOVERLAP", "NOISE_PCT",
+    "OVERSUBTRACTION", "SPECTRAL_FLOOR", "TARGET_RMS", "MAX_GAIN",
+)
+
+
 def pending_parameters():
     """Devuelve los parametros que siguen sin fijar."""
     here = globals()
     names = [
         "MAX_SATURATION_PCT", "MIN_RMS", "MIN_SNR_DB",
-        "STFT_NPERSEG", "STFT_NOVERLAP", "NOISE_PCT",
-        "OVERSUBTRACTION", "SPECTRAL_FLOOR", "TARGET_RMS", "SEGMENT_SECONDS",
+        *PHASE3_REQUIRED_PARAMETERS,
+        "SEGMENT_SECONDS",
     ]
     return [n for n in names if here[n] is None]
+
+
+def pending_phase3_parameters():
+    """Parametros de la fase 3 que faltan por fijar, con el informe que los determina."""
+    here = globals()
+    sources = {
+        "STFT_NPERSEG": "reports/phase3/3b_stft_resolution.csv",
+        "STFT_NOVERLAP": "reports/phase3/3b_stft_resolution.csv",
+        "NOISE_PCT": "reports/phase3/3b_denoising_sweep.csv",
+        "OVERSUBTRACTION": "reports/phase3/3b_denoising_sweep.csv",
+        "SPECTRAL_FLOOR": "reports/phase3/3b_denoising_sweep.csv",
+        "TARGET_RMS": "reports/phase3/3c_rms_distribution.csv",
+        "MAX_GAIN": "reports/phase3/3c_rms_distribution.csv",
+    }
+    return [(n, sources[n]) for n in PHASE3_REQUIRED_PARAMETERS if here[n] is None]

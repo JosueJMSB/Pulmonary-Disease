@@ -6,6 +6,8 @@ metadata unificada de ambos corpus.
 """
 
 import hashlib
+import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -243,6 +245,90 @@ def snr_proxy_db(x, sr, band=None):
 def dc_offset(x):
     """Desplazamiento de linea base, como fraccion del fondo de escala."""
     return float(np.mean(x)) if x.size else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Staging: escritura segura y reemplazo atomico
+# ---------------------------------------------------------------------------
+#
+# Toda fase que regenera un directorio de salida completo sigue el mismo
+# patron: escribir en un directorio "<destino>_staging" homonimo, validar por
+# completo, y solo entonces reemplazar el destino con un renombrado atomico.
+# Si algo falla a mitad de camino, el destino anterior permanece intacto. La
+# fase 2 lo introdujo para una sola carpeta (resampled/); estas versiones
+# genericas, parametrizadas por directorio, permiten que la fase 3 la reuse
+# para clean/ -que contiene ambas ramas bajo un unico padre- sin duplicar la
+# logica ni inventar un intercambio transaccional de multiples carpetas.
+
+def staging_dir_for(target_dir):
+    """Directorio de staging homonimo de un directorio de destino."""
+    return target_dir.with_name(target_dir.name + "_staging")
+
+
+def previous_swap_dir_for(target_dir):
+    """Directorio temporal donde se aparca el destino anterior durante el swap."""
+    return target_dir.with_name(target_dir.name + "_previous_swap")
+
+
+def prepare_staging(target_dir):
+    """Directorio de staging limpio, con salvaguarda ante una ruta inesperada.
+
+    Antes de borrar un directorio existente se comprueba que su ruta resuelta
+    coincide exactamente con la esperada: protege contra el caso en que
+    "<destino>_staging" hubiera sido reemplazado por un enlace simbolico a
+    otro lugar.
+    """
+    staging = staging_dir_for(target_dir)
+    if staging.exists():
+        resolved = staging.resolve()
+        expected = staging_dir_for(target_dir).resolve()
+        if resolved != expected:
+            raise RuntimeError(
+                f"Ruta de staging inesperada, se aborta por seguridad: {resolved}"
+            )
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    return staging
+
+
+def write_atomic(path, y, sr, subtype="FLOAT"):
+    """Escribe primero un archivo temporal y lo renombra al completar.
+
+    Si el proceso se interrumpe a mitad de la escritura, queda un .part
+    huerfano y nunca un .wav truncado bajo el nombre final. El sufijo ".part"
+    (no ".wav") evita que un intento fallido se cuente como salida valida en
+    un recuento de archivos por glob "*.wav". El formato se declara de forma
+    explicita porque el nombre temporal ya no permite inferirlo de la
+    extension.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    sf.write(str(tmp), y.astype(np.float32), sr, subtype=subtype, format="WAV")
+    os.replace(tmp, path)
+
+
+def swap_staging_into_place(target_dir):
+    """Reemplazo atomico del directorio de destino por su staging homonimo.
+
+    Renombrar es la unica operacion atomica disponible a nivel de sistema de
+    archivos; copiar no lo es. Si el reemplazo falla a medio camino, se
+    restaura el directorio anterior automaticamente.
+    """
+    staging = staging_dir_for(target_dir)
+    previous = previous_swap_dir_for(target_dir)
+    had_previous = target_dir.exists()
+    try:
+        if had_previous:
+            if previous.exists():
+                shutil.rmtree(previous)
+            os.replace(target_dir, previous)
+        os.replace(staging, target_dir)
+    except OSError:
+        if had_previous and previous.exists() and not target_dir.exists():
+            os.replace(previous, target_dir)
+        raise
+    if had_previous and previous.exists():
+        shutil.rmtree(previous)
 
 
 # ---------------------------------------------------------------------------
