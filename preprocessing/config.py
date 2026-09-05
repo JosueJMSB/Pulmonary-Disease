@@ -95,6 +95,14 @@ PHASE3_MANIFEST = REPORTS_P3 / "manifest.csv"
 R3_FAILED_ATTEMPT = REPORTS_P3 / "manifest_attempt_failed.csv"
 R3_SUMMARY = REPORTS_P3 / "validation_summary.csv"
 
+# Fase 4 - Estandarizacion temporal
+REPORTS_P4 = REPORTS / "phase4"
+R4_INPUT_VALIDATION = REPORTS_P4 / "4_input_validation.csv"
+R4_WINDOW_LENGTH = REPORTS_P4 / "4b_window_length.csv"
+R4_SEGMENT_SUMMARY = REPORTS_P4 / "4a_segment_summary.csv"
+R4_FAILED_ATTEMPT = REPORTS_P4 / "validation_attempt_failed.csv"
+R4_SUMMARY = REPORTS_P4 / "validation_summary.csv"
+
 # ---------------------------------------------------------------------------
 # Fase 1c - Calidad de senal
 # ---------------------------------------------------------------------------
@@ -325,15 +333,35 @@ MAX_GAIN = 20.0
 # ---------------------------------------------------------------------------
 
 SEGMENT_OVERLAP = 0.50
-SEGMENT_SECONDS = None         # longitud de ventana, a determinar en 4b
 
-# Duraciones evaluadas en la etapa 4b
+# Duraciones evaluadas en la etapa 4b. Medido sobre el corpus real (fase 3,
+# 1249 grabaciones): 8 s deja a 58 pacientes con menos de 5 segmentos y a uno
+# con cero, lo que rompe la agregacion a nivel de paciente prevista para el
+# etiquetado debil; 6 s produce una cola sin cubrir de 2.00 s en las
+# grabaciones de 20 s -la mitad del corpus- porque el salto de 3 s no encaja
+# en esa duracion, y su contencion de ciclos (74.1 %) cae por debajo de la de
+# 5 s (81.1 %): la contencion no es monotona con la longitud, depende de como
+# encaje la rejilla en la duracion real. Entre las dos que quedan viables,
+# 4 s (11294 segmentos, 44.4 % de ventanas con ciclo completo, mediana de 20
+# segmentos por paciente) y 5 s (8747 segmentos, 65.3 %, mediana de 15), se
+# elige 5 s: gana 21 puntos de contencion de ciclos a cambio de un 23 % menos
+# de segmentos, cubre exactamente las grabaciones de 20 s sin cola, y ninguna
+# grabacion se pierde -la mas corta del corpus dura justo 5.00 s-.
 SEGMENT_CANDIDATES = (2.0, 3.0, 4.0, 5.0, 6.0, 8.0)
+SEGMENT_SECONDS = 5.0
+
+# Los segmentos son la entrada del modelo, no una etapa intermedia. Se
+# guardan en coma flotante de 32 bits para que la senal llegue exactamente
+# como la dejo la fase 3, sin recuantizar: unos 667 MB por rama sobre 269 GB
+# libres. int16 habria ahorrado la mitad y habria sido seguro -el techo de
+# pico en 0.95 impide el recorte-, pero no hay razon para pagar una perdida
+# que no hace falta.
+SEGMENT_DTYPE = "float32"
 
 
 def ensure_dirs():
     """Crea los directorios de salida si no existen."""
-    for d in (REPORTS, REPORTS_P1, REPORTS_P2, REPORTS_P3, FIGURES,
+    for d in (REPORTS, REPORTS_P1, REPORTS_P2, REPORTS_P3, REPORTS_P4, FIGURES,
               RESAMPLED, CLEAN_NO_DN, CLEAN_DN, FINAL):
         d.mkdir(parents=True, exist_ok=True)
 

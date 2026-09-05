@@ -1,0 +1,7 @@
+segment_seconds,hop_seconds,window_samples,hop_samples,n_segments,recordings_lost,patients_lost,pct_windows_with_complete_cycle,pct_windows_with_partial_cycle,pct_windows_empty,mean_complete_cycles_per_window,pct_cycles_contained,median_segments_per_patient,patients_under_5_segments,mean_uncovered_tail_s,max_uncovered_tail_s,size_mb_float32_per_branch,selected
+2.0,1.0,8000,4000,24057,0,0,5.53,93.28,1.19,0.057,15.35,43.5,0,0.1717,0.984,734.2,False
+3.0,1.5,12000,6000,15288,0,0,19.01,80.15,0.84,0.206,34.59,28.5,0,0.5724,1.464,699.8,False
+4.0,2.0,16000,8000,11294,0,0,44.43,54.97,0.61,0.526,64.48,19.5,2,0.3478,1.984,689.3,False
+5.0,2.5,20000,10000,8747,0,0,65.3,34.24,0.46,0.875,81.05,15.0,4,0.4247,2.48,667.3,True
+6.0,3.0,24000,12000,6513,6,2,76.4,23.17,0.43,1.14,74.12,12.0,6,1.8034,5.936,596.3,False
+8.0,4.0,32000,16000,4904,7,2,93.5,6.2,0.3,1.983,95.78,8.5,58,0.7497,7.856,598.6,False

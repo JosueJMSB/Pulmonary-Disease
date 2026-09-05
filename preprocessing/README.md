@@ -50,7 +50,7 @@ FASE 4 · Estandarización temporal
 | 3a · Filtrado pasa-banda | `phase3_cleaning.py` | `reports/phase3/3a_bandpass_design.csv`, `3a_band_energy.csv` |
 | 3b · Denoising | `phase3_cleaning.py` | `reports/phase3/3b_stft_resolution.csv`, `3b_denoising_sweep.csv` |
 | 3c · Normalización de amplitud | `phase3_cleaning.py` | `data/interim/clean/no_dn/`, `clean/dn/`, `reports/phase3/manifest.csv` |
-| 4a · Segmentación | `phase4_temporal.py` | `data/final/segments_*.npy`, `segments.csv` |
+| 4a · Segmentación | `phase4_temporal.py` | `data/final/segments_*.npy`, `segments.csv`, `reports/phase4/4a_segment_summary.csv` |
 | 4b · Estandarización de duración | `phase4_temporal.py` | `reports/phase4/4b_window_length.csv` |
 
 ---
@@ -64,7 +64,7 @@ preprocessing/
 ├── phase1_verification.py
 ├── phase2_standardization.py
 ├── phase3_cleaning.py
-├── phase4_temporal.py           Pendiente de implementación
+├── phase4_temporal.py
 ├── run_pipeline.py              Orquestador pendiente
 │
 ├── reports/                     VERSIONADO · ver reports/README.md
@@ -86,6 +86,7 @@ preprocessing/
 │   │   └── validation_summary.csv
 │   ├── phase3/
 │   │   ├── calibration_patients.csv
+│   │   ├── calibration_provenance.csv
 │   │   ├── 3a_bandpass_design.csv
 │   │   ├── 3a_band_energy.csv
 │   │   ├── 3b_stft_resolution.csv
@@ -93,6 +94,11 @@ preprocessing/
 │   │   ├── 3b_denoising_metrics.csv
 │   │   ├── 3c_rms_distribution.csv
 │   │   ├── manifest.csv         Resultado contractual de la fase (2 filas por audio)
+│   │   └── validation_summary.csv
+│   ├── phase4/
+│   │   ├── 4_input_validation.csv
+│   │   ├── 4b_window_length.csv
+│   │   ├── 4a_segment_summary.csv
 │   │   └── validation_summary.csv
 │   └── figures/
 │
@@ -102,10 +108,10 @@ preprocessing/
     │   └── clean/               salida de la fase 3
     │       ├── no_dn/           pasa-banda + normalización
     │       └── dn/              + denoising
-    └── final/
-        ├── segments_no_dn.npy
-        ├── segments_dn.npy
-        └── segments.csv         VERSIONADO
+    └── final/                   salida de la fase 4
+        ├── segments_no_dn.npy   (8747, 20000) float32 · 667 MB
+        ├── segments_dn.npy      (8747, 20000) float32 · 667 MB
+        └── segments.csv         VERSIONADO · inventario, 8747 filas
 ```
 
 Durante la ejecución de una fase con reemplazo atómico aparece brevemente un directorio
@@ -117,10 +123,12 @@ para que ese reemplazo sea un solo renombrado en vez de un intercambio transacci
 carpetas hermanas.
 
 El audio procesado no se versiona porque es derivable: se regenera ejecutando el pipeline
-sobre los datos originales. Ocupa unos 1.2 GB en total (390 MB en `resampled/`, 779 MB en
-`clean/`, entre las dos ramas).
+sobre los datos originales. Ocupa unos 2.5 GB en total (390 MB en `resampled/`, 779 MB en
+`clean/` entre las dos ramas, y 1.33 GB en `final/` entre los dos `.npy`).
 
 `segments.csv` sí se versiona: es el registro de trazabilidad de lo que el pipeline produjo.
+Los `.npy` no, por el mismo motivo que el resto de `data/`: son derivables, y a 667 MB cada
+uno no tiene sentido llevarlos al repositorio.
 
 `reports/phase1/manifest.csv` contiene una fila por audio. `quality_status` usa `PASS`, `REVIEW`
 o `EXCLUDE`: una revisión no equivale a eliminar el archivo. `modeling_status` separa las
@@ -163,11 +171,13 @@ disponible, no es una SNR real. Mientras esa comparación no exista, lo defendib
 | Solapamiento entre segmentos | 50 % | 4a |
 | Métrica de evaluación del denoising | Relación señal-ruido | 3b |
 
-### Determinados por calibración
+### Determinados por medición
 
-Elegidos con `python phase3_cleaning.py --calibrar`, observando solo el subconjunto de
-calibración (20 % de los pacientes, nunca el corpus completo) y con la regla de selección
-documentada en `reports/README.md`. El razonamiento completo de cada valor está en los
+Los seis primeros se eligieron con `python phase3_cleaning.py --calibrar`, observando solo el
+subconjunto de calibración (20 % de los pacientes, nunca el corpus completo) y con la regla
+de selección documentada en `reports/README.md`. La longitud de ventana se midió sobre el
+corpus completo, sin ese riesgo de fuga: no depende de ningún parámetro ajustable, solo de
+las duraciones ya fijadas por la fase 3. El razonamiento completo de cada valor está en los
 comentarios de `config.py`.
 
 | Parámetro | Etapa | Valor | Determinado con |
@@ -175,15 +185,10 @@ comentarios de `config.py`.
 | Ventana / salto de la STFT | 3b | 256 / 192 muestras (64 ms, 75 % solape) | `reports/phase3/3b_stft_resolution.csv` |
 | Percentil de estimación del ruido | 3b | 15 | `reports/phase3/3b_denoising_sweep.csv` |
 | Sobre-sustracción (α) | 3b | 4.0 | ídem |
-| Suelo espectral (β) | 3b | 0.01 | ídem |
+| Suelo espectral (β) | 3b | 0.05 | ídem |
 | RMS objetivo | 3c | 0.03012 | `reports/phase3/3c_rms_distribution.csv` |
 | Tope de ganancia | 3c | 20× | ídem |
-
-### Pendientes (fase 4)
-
-| Parámetro | Etapa | Se determina observando |
-|---|---|---|
-| Longitud de ventana | 4b | `reports/phase4/4b_window_length.csv` |
+| Longitud de ventana | 4b | 5.0 s | `reports/phase4/4b_window_length.csv` |
 
 Todos residen en `config.py`, en un único lugar, de modo que las decisiones numéricas del
 pipeline sean auditables y el documento y el código no se desincronicen.
@@ -309,33 +314,94 @@ dos ramas dentro) y solo reemplaza `clean/` si las nueve comprobaciones pasan, i
 las dos ramas resulten distintas entre sí —evidencia de que el denoising tuvo efecto, no una
 suposición—.
 
-### Fase 4 · Orden de ejecución
+### Fase 4 · Estandarización temporal
 
-La etapa 4b se ejecuta **antes** que la 4a, porque la segmentación necesita conocer la
-longitud de ventana. El documento las presenta en orden inverso por lógica expositiva.
+**Orden de ejecución.** La etapa 4b se ejecuta **antes** que la 4a, porque la segmentación
+necesita conocer la longitud de ventana. El documento las presenta en orden inverso por
+lógica expositiva.
+
+**Longitud de ventana, medida y no elegida a priori.** `4b_window_length.csv` mide las seis
+candidatas sobre el corpus real. 8 s queda descartada por dejar a 58 pacientes con menos de 5
+segmentos —rompe la agregación por paciente prevista para el etiquetado débil—; 6 s por un
+artefacto de alineación: con salto de 3 s las grabaciones de 20 s (la mitad del corpus) dejan
+una cola de 2.00 s sin cubrir, y su contención de ciclos cae por debajo de la de 5 s. La
+contención de ciclos **no es monótona** con la longitud de ventana: depende de cómo encaje la
+rejilla de ventanas en la duración real de cada grabación, no solo del tamaño de la ventana.
+
+**Índices de muestra, no segundos redondeados.** Cada segmento se corta con
+`start_sample:end_sample`, enteros derivados de `samples // hop`. A 4 kHz con esta ventana y
+este solape el salto ya es un entero exacto (10 000 muestras), pero calcular en muestras evita
+que un cambio futuro de ventana o solape introduzca un error de redondeo silencioso al pasar
+de segundos a índice.
+
+**La cola se descarta, no se rellena.** Por construcción es siempre menor que un salto (media
+0.43 s, máximo 2.48 s). Rellenar con ceros reintroduciría el mismo relleno digital que la fase
+1 identificó como defecto en `F022`; añadir una ventana alineada al final solaparía con la
+anterior en más del 50 % por construcción, violando el parámetro que fija el documento.
+
+**Escritura por memoria mapeada.** Los `.npy` se abren con `numpy.lib.format.open_memmap` y se
+rellenan fila a fila conforme se lee cada grabación, sin reservar en RAM el array completo
+(unos 667 MB por rama). Se cierra y se vacía a disco (`flush`) antes del reemplazo atómico.
+
+**Validación completa de la entrada, antes de segmentar.** La fase se niega a continuar si
+`reports/phase3/validation_summary.csv` no dice `PASS`, si no hay exactamente 1249 `audio_id`
+con un par `no_dn`/`dn` cada uno, si la identidad clínica o la duración difieren entre ramas
+de un mismo audio, o si el SHA-256 de cualquiera de los 2498 WAV no coincide con el que
+registró el manifiesto de la fase 3. El resultado queda en
+`reports/phase4/4_input_validation.csv`.
 
 ---
 
 ## Trazabilidad de los segmentos
 
-`data/final/segments.csv` conecta cada fila del array `.npy` con su origen:
+`data/final/segments.csv` tiene **una fila por segmento, no por segmento y rama**: las dos
+ramas comparten exactamente la misma rejilla —mismo origen, mismos límites de muestra—, así
+que la fila `array_index` describe simultáneamente esa misma fila en `segments_no_dn.npy` y
+en `segments_dn.npy`. Solo cambia el audio.
 
 | Columna | Descripción |
 |---|---|
-| `idx` | Índice de la fila correspondiente en el `.npy` |
-| `dataset` | `ICBHI` o `FRAIWAN` |
-| `patient_uid` | Identificador de paciente |
-| `audio_id` | Grabación de procedencia |
-| `device` | Dispositivo de captura |
-| `zone` | Zona de auscultación |
-| `filter` | Modo de filtrado (solo Fraiwan) |
-| `start_s`, `end_s` | Posición del segmento dentro de la grabación |
-| `label` | Diagnóstico heredado del paciente |
-| `branch` | `no_dn` o `dn`, según la rama de denoising |
+| `array_index` | Fila correspondiente en **ambos** `.npy` |
+| `segment_id` | Identificador legible: `{audio_id}_{segment_idx:03d}` |
+| `audio_id`, `dataset`, `patient_uid` | Trazabilidad hasta la grabación y el paciente |
+| `diagnosis` | Diagnóstico heredado del paciente — **etiquetado débil** (ver abajo) |
+| `device`, `zone`, `filter` | Para el benchmarking entre dispositivos de captura |
+| `start_sample`, `end_sample` | Límites del segmento en **muestras enteras**, no en segundos redondeados |
+| `start_s`, `end_s` | Los mismos límites, derivados de las muestras para lectura humana |
+| `tail_samples` | Audio descartado al final de la grabación, por no completar otra ventana |
+| `segment_idx`, `n_segments_in_recording` | Posición relativa dentro de su grabación |
+| `n_complete_cycles`, `n_partial_cycles` | Ciclos anotados que caen entero o solo se solapan (solo ICBHI; `NA` en Fraiwan) |
+| `has_complete_crackle_cycle`, `has_complete_wheeze_cycle` | El evento está garantizado: el ciclo que lo lleva cae entero dentro del segmento |
+| `overlaps_crackle_cycle`, `overlaps_wheeze_cycle` | El evento **no está garantizado**: solo hay solape con un ciclo que lo lleva |
+| `quality_status`, `quality_reasons` | Heredados de la fase 1 |
+| `calibration_patient` | Contrato de la fase 3: debe caer en entrenamiento |
+| `dn_reliable`, `dn_flag_reason` | `False` en las grabaciones donde la rama `dn` quedó dañada |
 
-`patient_uid` es la columna que permite particionar por paciente. Todas las ventanas de un
-mismo paciente, y los tres modos de filtrado de una misma grabación de Fraiwan, deben
-permanecer en la misma partición.
+### Por qué se separa lo completo de lo que solo se solapa
+
+ICBHI anota que un ciclo tiene crepitantes o sibilancias, pero no en qué punto del ciclo
+ocurre el evento. Un segmento que solo roza el borde de un ciclo con ese evento **no
+garantiza** contener el sonido: por eso `has_complete_*` (contención completa, la etiqueta
+fuerte) y `overlaps_*` (simple solape, no usable como etiqueta positiva sin más) se reportan
+por separado, en vez de una sola columna que las mezclara. Fraiwan no tiene ciclos anotados:
+esas seis columnas quedan en `NA`, no en `False` ni en `0` — la ausencia de anotación no es
+la ausencia del evento.
+
+### Por qué `patient_uid`, `calibration_patient` y `dn_reliable` no son opcionales
+
+`diagnosis` es etiquetado débil: el segmento hereda el diagnóstico del paciente aunque en
+esos 5 s concretos no haya nada audible de la patología. El tratamiento previsto es agregar a
+nivel de paciente en la evaluación, y eso exige que `patient_uid` viaje con cada segmento. Los
+tres modos de filtrado de una misma grabación de Fraiwan comparten `patient_uid`, de modo que
+particionar por paciente ya los mantiene juntos.
+
+`calibration_patient` marca los 46 pacientes sobre los que se eligieron los parámetros de la
+fase 3: la partición train/test debe colocarlos del lado de entrenamiento, o esos parámetros
+quedarían ajustados sobre datos de prueba.
+
+`dn_reliable` marca las 23 grabaciones donde la rama `dn` quedó dañada. **Si se excluyen de
+una comparación `dn` frente a `no_dn`, deben excluirse de las dos ramas a la vez** —nunca solo
+de `dn`—, o la comparación dejaría de evaluarse sobre el mismo conjunto de grabaciones.
 
 ---
 
@@ -351,17 +417,21 @@ python preprocessing/phase2_standardization.py
 # fase 3, en dos pasadas:
 python preprocessing/phase3_cleaning.py --calibrar   # mide y recomienda; no escribe audio
 python preprocessing/phase3_cleaning.py               # con los parametros ya fijados en config.py
+
+# fase 4: valida la salida de la fase 3 y segmenta
+python preprocessing/phase4_temporal.py
 ```
 
 La segunda pasada de la fase 3 se niega a correr si algún parámetro de `config.py` sigue en
-`None`, e indica qué informe de `--calibrar` lo determina.
+`None`, e indica qué informe de `--calibrar` lo determina. La fase 4 se niega a correr si la
+salida de la fase 3 no pasa su validación completa (véase más abajo).
 
 **Requisitos:** Python 3.11 o superior. Las versiones empleadas se encuentran fijadas en
 `requirements.txt`; `openpyxl` permite contrastar la metadata de Fraiwan con su Excel fuente.
 
 Tiempos de ejecución medidos: fase 1 entre 3 y 5 minutos, fase 2 unos 5 minutos, fase 3
-alrededor de 5 minutos por pasada (calibración y ejecución completa). Fase 4 no está
-implementada todavía; se estima en torno a 5 minutos.
+alrededor de 5 minutos por pasada (calibración y ejecución completa), fase 4 menos de un
+minuto (~8 s de verificación de hashes y ~15 s de segmentación de las dos ramas).
 
 ---
 
@@ -372,8 +442,8 @@ implementada todavía; se estima en torno a 5 minutos.
 | 1 | `reports/phase1/manifest.csv` tiene 1256 `audio_id` únicos; toda incidencia lleva estado y razón; los ciclos regenerados se comparan por contenido con los del repositorio; no existen valores infinitos de SNR |
 | 2 | El FIR anti-aliasing cumple ≤0.1 dB de ondulación hasta 1800 Hz y ≥60 dB de atenuación desde 2000 Hz, verificado con `freqz`, con tonos puros y con audio real estratificado; los 419 archivos ya a 4 kHz conservan sus muestras exactas (`np.array_equal`); `resampling.csv` tiene 1249 `audio_id` únicos y ninguna fila `FAIL` |
 | 3 | Prueba nula de STFT/ISTFT con error < 1e-9; retardo del pasa-banda = 0 muestras; `clean/no_dn/` y `clean/dn/` tienen 1249 archivos cada una, sin `NaN`/`Inf`, con la misma duración que la fase 2; ningún pico supera 0.95 ni ninguna ganancia supera el tope; las dos ramas resultan distintas entre sí; `reports/phase3/manifest.csv` tiene 2498 filas (1249 × 2 ramas) |
-| 4 | Las filas de `segments.csv` coinciden con la primera dimensión de cada `.npy`; los tres modos de filtrado de un paciente de Fraiwan quedan siempre juntos |
-| Global | Una ejecución desde cero sobre el repositorio limpio reproduce `segments.csv` byte a byte |
+| 4 | La entrada de la fase 3 se valida por completo antes de segmentar (veredicto, conteos, identidad clínica, duración y SHA-256 de los 2498 WAV); las filas de `segments.csv` coinciden con la primera dimensión de **cada** `.npy` y las dos ramas tienen forma idéntica; una muestra aleatoria de segmentos coincide bit a bit con su origen; los tres modos de filtrado de un paciente de Fraiwan quedan siempre juntos; `dn_reliable=False` se propaga a todos los segmentos de la grabación que corresponde |
+| Global | Una ejecución desde cero sobre el repositorio limpio reproduce `segments.csv` y ambos `.npy` byte a byte |
 
 Las distribuciones de la fase 1 se examinan además desagregadas por dataset, dispositivo y
 filtro. Los indicadores de saturación y SNR producen `REVIEW`, no una exclusión automática,

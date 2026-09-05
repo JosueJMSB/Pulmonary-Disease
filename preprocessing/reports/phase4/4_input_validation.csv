@@ -1,0 +1,7 @@
+check,ok,detail
+veredicto_fase3,True,PASS
+audios_unicos,True,1249 (esperado 1249)
+pares_no_dn_dn,True,0 audio_id sin el par exacto
+identidad_clinica,True,0 discrepancias entre ramas
+duracion_identica,True,0 audio_id con distinta duracion
+sha256_wav,True,0 de 2498 no coinciden

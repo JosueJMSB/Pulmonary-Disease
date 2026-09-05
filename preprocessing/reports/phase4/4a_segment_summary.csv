@@ -1,0 +1,17 @@
+diagnosis,n_segments,pct_segments
+COPD,6208,70.97
+Normal,576,6.59
+Asthma,503,5.75
+Pneumonia,355,4.06
+HeartFailure,252,2.88
+Healthy,240,2.74
+URTI,159,1.82
+Bronchiectasis,112,1.28
+Bronchiolitis,91,1.04
+LungFibrosis,57,0.65
+HeartFailure-COPD,51,0.58
+PleuralEffusion,51,0.58
+Bronchitis,36,0.41
+HeartFailure-LungFibrosis,24,0.27
+Asthma-LungFibrosis,18,0.21
+LRTI,14,0.16

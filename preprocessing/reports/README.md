@@ -10,6 +10,7 @@ reports/
 ├── phase1/   Verificación de datos      · 8 informes
 ├── phase2/   Estandarización de señal   · 5 informes
 ├── phase3/   Limpieza de señal          · 9 informes
+├── phase4/   Estandarización temporal   · 4 informes
 └── figures/  Gráficos, compartidos
 ```
 
@@ -162,6 +163,55 @@ Ninguna se excluye: `no_dn` las conserva intactas y la decisión corresponde al 
 Igual que en la fase 2: `clean/` solo se reemplaza si `validation_summary.csv` dice `PASS`. Si
 dice `FAIL`, la salida anterior (o su ausencia, en una primera ejecución) permanece intacta y
 el intento queda en `manifest_attempt_failed.csv`.
+
+---
+
+## Fase 4 · Estandarización temporal
+
+Producidos por [`phase4_temporal.py`](../phase4_temporal.py). Convierte las dos ramas de la
+fase 3 (`clean/no_dn/`, `clean/dn/`), de duración desigual, en dos arrays de ventanas de 5 s
+con solape del 50 %: `data/final/segments_no_dn.npy` y `segments_dn.npy`, más
+`data/final/segments.csv` como inventario compartido.
+
+| Informe | Etapa | Contenido |
+|---|---|---|
+| `4_input_validation.csv` | — | Las seis comprobaciones que la salida de la fase 3 debe superar antes de segmentar: veredicto, conteo de audios, pares de rama, identidad clínica, duración y SHA-256 de los 2498 WAV. La fase se detiene si alguna falla. |
+| `4b_window_length.csv` | 4b | Las seis candidatas de `SEGMENT_CANDIDATES`, medidas sobre el corpus real: segmentos resultantes, grabaciones y pacientes perdidos, contención de ciclos anotados y segmentos por paciente. La columna `selected` marca la elegida. |
+| `4a_segment_summary.csv` | 4a | Segmentos por diagnóstico, con su porcentaje sobre el total. Calculado sobre el inventario completo, no solo sobre ICBHI. |
+| `validation_summary.csv` | — | El veredicto de la fase, la forma y el `dtype` de los arrays, el SHA-256 de cada `.npy` y de `segments.csv`, y los conteos de las once comprobaciones. |
+
+### Por qué la longitud de ventana no es la que se citó antes en el proyecto
+
+Una discusión previa había justificado 5 s con «1.97 ciclos por ventana y 96.6 % de ciclos
+completos». Ambas cifras eran teóricas y no medidas: 1.97 es 5.0 s dividido entre la duración
+mediana del ciclo (2.54 s) —capacidad de la ventana, no recuento real—, y 96.6 % es el
+porcentaje de ciclos *más cortos* que la ventana, no los que efectivamente caen dentro de
+alguna. Medido sobre la rejilla real de segmentación: **0.87 ciclos completos por ventana y
+81.1 % de ciclos contenidos**. Las cifras correctas son las de `4b_window_length.csv`.
+
+La contención de ciclos tampoco crece de forma monótona con la longitud de ventana: 6 s
+(74.1 %) contiene *menos* ciclos que 5 s (81.1 %), porque con un salto de 3 s las grabaciones
+de 20 s —la mitad del corpus— quedan con una cola de 2.00 s sin cubrir. Depende de cómo
+encaje la rejilla de ventanas en la duración real, no solo del tamaño de la ventana.
+
+### Contención completa frente a simple solape
+
+`segments.csv` distingue `n_complete_cycles` (el ciclo cabe entero en el segmento) de
+`n_partial_cycles` (solo hay solape). Solo la contención completa garantiza que un evento
+adventicio anotado en ese ciclo está presente: ICBHI no anota en qué punto del ciclo ocurre
+el crepitante o la sibilancia, de modo que un segmento que roza el borde de un ciclo con ese
+evento no garantiza contener el sonido. Por eso `has_complete_crackle_cycle` (etiqueta fuerte)
+y `overlaps_crackle_cycle` (no usable como positivo sin más) se reportan por separado, y lo
+mismo para sibilancias. En Fraiwan, que no tiene ciclos anotados, estas seis columnas son
+`NA`, no `False` ni `0`.
+
+### Índices de muestra, no segundos redondeados
+
+`start_sample` y `end_sample` son los que realmente cortan el audio
+(`x[start_sample:end_sample]`); `start_s` y `end_s` se derivan de ellos para lectura humana,
+no al revés. A 4 kHz con esta ventana y este solape el salto ya es un entero exacto (10 000
+muestras), pero calcular en muestras evita que un cambio futuro de ventana o solape
+introduzca un error de redondeo silencioso.
 
 ---
 

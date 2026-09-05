@@ -92,7 +92,7 @@ pipeline sobre los datos originales. El procedimiento completo está documentado
 | Resultado esperado | Estado |
 |---|---|
 | 1 · Metadata unificada de ambos corpus | Completo |
-| 2 · Pipeline de preprocesamiento validado | Documentado y validado; implementación en curso |
+| 2 · Pipeline de preprocesamiento validado | Las cuatro fases implementadas, ejecutadas y verificadas; falta el orquestador `run_pipeline.py` |
 | 3 · Entrenamiento y comparación de modelos | Pendiente |
 | 4 · Benchmarking entre dispositivos de captura | Pendiente |
 
