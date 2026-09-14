@@ -1,0 +1,19 @@
+{
+  "verdict": "PASS",
+  "task": "COPD_vs_Control",
+  "created_at_utc": "2026-09-14T05:28:40.016930+00:00",
+  "datasets": [
+    "ICBHI",
+    "FRAIWAN_Extended"
+  ],
+  "total_segments_per_branch": 6536,
+  "git": {
+    "commit": "89346c889b43507df35e66cfc61f2245e25e003b",
+    "dirty": true
+  },
+  "source_hashes": {
+    "segments.csv": "347499af98c37d1b856b003b1a879b27ac42002041eb063b1bc314c85790cfad",
+    "segments_no_dn.npy": "44849bb5c952d245ac57f8c4f76ccb6a2fa2c28874ff29be08378ed69899bfcd",
+    "segments_dn.npy": "c1a0babff33981da4b7615d22c4ab0b3c57d46c9f38b00424a81e8ba4ffb3d5b"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "verdict": "PASS",
+  "task": "COPD_vs_Control",
+  "output_name": "ICBHI",
+  "dataset": "ICBHI",
+  "diagnoses": [
+    "COPD",
+    "Healthy"
+  ],
+  "label_mapping": {
+    "COPD": 1,
+    "Healthy": 0,
+    "Normal": 0
+  },
+  "required_filter": null,
+  "created_at_utc": "2026-09-14T05:28:39.371741+00:00",
+  "git": {
+    "commit": "89346c889b43507df35e66cfc61f2245e25e003b",
+    "dirty": true
+  },
+  "source_root": "C:\\Pulmonary-Disease\\preprocessing\\data\\final",
+  "source_shape": [
+    8747,
+    20000
+  ],
+  "output_shape": [
+    6295,
+    20000
+  ],
+  "dtype": "float32",
+  "class_counts": {
+    "COPD": {
+      "patients": 64,
+      "recordings": 793,
+      "segments": 6055,
+      "calibration_patients": 13,
+      "dn_unreliable_recordings": 23
+    },
+    "Healthy": {
+      "patients": 26,
+      "recordings": 35,
+      "segments": 240,
+      "calibration_patients": 5,
+      "dn_unreliable_recordings": 0
+    }
+  },
+  "source_hashes": {
+    "segments.csv": "347499af98c37d1b856b003b1a879b27ac42002041eb063b1bc314c85790cfad",
+    "segments_no_dn.npy": "44849bb5c952d245ac57f8c4f76ccb6a2fa2c28874ff29be08378ed69899bfcd",
+    "segments_dn.npy": "c1a0babff33981da4b7615d22c4ab0b3c57d46c9f38b00424a81e8ba4ffb3d5b"
+  },
+  "output_hashes": {
+    "segments_no_dn.npy": "e86141aab5cd47489ace9d8796470bcf2008034fdf924b952ecb6960efb0c004",
+    "segments_dn.npy": "94a70a15877f599c4325222352dfe62ba1c36b0d01b0c74f0028a68c58bdcd72",
+    "segments.csv": "dca2b799e2c948ee1a8a08771ee4cd1cf573cfddf92172884be341ec9c7b5e8a"
+  },
+  "python": "3.14.5",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "numpy": "2.5.2",
+  "pandas": "3.0.5"
+}

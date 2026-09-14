@@ -1,0 +1,61 @@
+{
+  "verdict": "PASS",
+  "task": "COPD_vs_Control",
+  "output_name": "FRAIWAN_Extended",
+  "dataset": "FRAIWAN",
+  "diagnoses": [
+    "COPD",
+    "Normal"
+  ],
+  "label_mapping": {
+    "COPD": 1,
+    "Healthy": 0,
+    "Normal": 0
+  },
+  "required_filter": "Extended",
+  "created_at_utc": "2026-09-14T05:28:39.939313+00:00",
+  "git": {
+    "commit": "89346c889b43507df35e66cfc61f2245e25e003b",
+    "dirty": true
+  },
+  "source_root": "C:\\Pulmonary-Disease\\preprocessing\\data\\final",
+  "source_shape": [
+    8747,
+    20000
+  ],
+  "output_shape": [
+    241,
+    20000
+  ],
+  "dtype": "float32",
+  "class_counts": {
+    "COPD": {
+      "patients": 9,
+      "recordings": 9,
+      "segments": 51,
+      "calibration_patients": 2,
+      "dn_unreliable_recordings": 0
+    },
+    "Normal": {
+      "patients": 34,
+      "recordings": 34,
+      "segments": 190,
+      "calibration_patients": 7,
+      "dn_unreliable_recordings": 0
+    }
+  },
+  "source_hashes": {
+    "segments.csv": "347499af98c37d1b856b003b1a879b27ac42002041eb063b1bc314c85790cfad",
+    "segments_no_dn.npy": "44849bb5c952d245ac57f8c4f76ccb6a2fa2c28874ff29be08378ed69899bfcd",
+    "segments_dn.npy": "c1a0babff33981da4b7615d22c4ab0b3c57d46c9f38b00424a81e8ba4ffb3d5b"
+  },
+  "output_hashes": {
+    "segments_no_dn.npy": "63f840e75aca0e589fd004ca32c3d08fcd403ddb2c6b582dd553535f8a9fea3c",
+    "segments_dn.npy": "3997c8cfd43cd5879293264db9e0beaa0a88ad31ceece5f5d0236695434a7ad0",
+    "segments.csv": "912153acf4f070210ae12ecc5baea61f76f03b7e4fc972f9203efebdf86f0c88"
+  },
+  "python": "3.14.5",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "numpy": "2.5.2",
+  "pandas": "3.0.5"
+}

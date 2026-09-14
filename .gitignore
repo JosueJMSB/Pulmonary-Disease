@@ -91,3 +91,8 @@ preprocessing/data/final/*
 # *.pt
 # *.pkl
 # *.npy
+
+# Subconjuntos derivados para las tareas de modelado. Los inventarios y
+# manifiestos se conservan; las matrices se regeneran con el codigo versionado.
+modeling/data/**/*.npy
+modeling/data/**/*_staging_*/
