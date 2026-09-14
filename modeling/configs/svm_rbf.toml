@@ -1,0 +1,153 @@
+# Configuracion versionada del experimento SVM-RBF.
+#
+# No hay rutas personales aqui: --data-root / --runs-root / --cache-root (o las
+# variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT)
+# resuelven donde viven los datos y los resultados en cada maquina.
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+# 1 + (segment_length - n_fft) // hop_length con center=False.
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[mfcc]
+n_mfcc = 13
+delta_width = 9
+delta_order = 1
+delta2_order = 2
+
+[summary]
+# Estadisticos aplicados a cada una de las 39 series MFCC/delta/delta-delta y
+# a los 8 descriptores acusticos: 47 x 4 = 188 columnas.
+statistics = ["mean", "std", "p10", "p90"]
+percentiles = [10, 90]
+
+[splits]
+n_splits = 5
+random_state = 20260914
+
+[weights]
+# w_s = 1 / (N_c * R_p * S_r), normalizado a media 1 dentro del conjunto sobre
+# el que se calcula (train, o train+validation al reajustar para test/final).
+normalize_to_mean_one = true
+
+[svm]
+kernel = "rbf"
+# probability queda fuera: el default de SVC ya es false, y pasarlo
+# explicitamente produce una advertencia de obsolescencia en scikit-learn
+# 1.9. La clase nunca llama a predict_proba, solo a decision_function.
+shrinking = true
+tol = 1e-3
+cache_size_mb = 1024
+class_weight = "none"
+c_grid = [0.1, 1, 10, 100]
+gamma_grid = ["scale", 0.001, 0.01, 0.1]
+decision_threshold = 0.0
+
+[selection]
+# Orden de los criterios de desempate al elegir (C, gamma) en validacion.
+criteria = [
+    "balanced_accuracy",
+    "macro_f1",
+    "min_class_recall",
+    "neg_C",
+    "gamma_order",
+]
+
+[bootstrap]
+n_resamples = 2000
+confidence = 0.95
+random_state = 20260914
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+# Por defecto, relativos a la raiz del repositorio; sobrescribibles por CLI o
+# por variable de entorno.
+default_data_root = "modeling/data/copd_vs_control"
+default_runs_root = "modeling/runs/svm"
+default_cache_root = "modeling/cache/features"
+
+# ---------------------------------------------------------------------------
+# Datasets: nombre de carpeta bajo data-root, clase positiva/negativa y
+# columna de metadata que produce el nombre legible de la clase negativa en
+# los reportes ("Healthy" en ICBHI, "Normal" en Fraiwan).
+# ---------------------------------------------------------------------------
+
+[datasets.ICBHI]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Healthy"
+negative_label_name = "Healthy"
+
+[datasets.FRAIWAN_Extended]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Normal"
+negative_label_name = "Normal"
+
+# ---------------------------------------------------------------------------
+# Condiciones por experimento. Cada condicion es una combinacion concreta de
+# (branch, dn_reliable_only) que produce un run independiente y, al final, un
+# modelo propio bajo <dataset>/<condicion>/final/.
+#
+# La condicion FRAIWAN_Extended/main_no_dn se reutiliza como lado "no_dn" de
+# la ablacion de esa dataset: las 43 grabaciones de Fraiwan Extended tienen
+# dn_reliable=True, de modo que filtrar por fiabilidad no cambia la poblacion
+# y no hace falta una condicion "no_dn_reliable" separada para Fraiwan.
+# ---------------------------------------------------------------------------
+
+[experiments.main]
+description = "Condicion principal: no_dn, todas las grabaciones elegibles."
+
+[experiments.main.ICBHI]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.main.FRAIWAN_Extended]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Ablacion no_dn vs dn, restringida a grabaciones dn_reliable=True."
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "no_dn_reliable"
+branch = "no_dn"
+dn_reliable_only = true
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "dn_reliable"
+branch = "dn"
+dn_reliable_only = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false

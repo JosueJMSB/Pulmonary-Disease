@@ -96,3 +96,15 @@ preprocessing/data/final/*
 # manifiestos se conservan; las matrices se regeneran con el codigo versionado.
 modeling/data/**/*.npy
 modeling/data/**/*_staging_*/
+
+# ---------------------------------------------------------------------------
+# Modelado: cache de caracteristicas y ejecuciones de entrenamiento
+# ---------------------------------------------------------------------------
+# La cache (X.npy + metadatos) y las ejecuciones completas (folds, figuras,
+# modelos .joblib) son derivables y pesan demasiado para versionarse. Los CSV
+# de configuracion y el codigo si se versionan; run_experiment.py deja
+# constancia de la procedencia (hashes, commit, config) dentro de cada run.
+modeling/cache/
+modeling/runs/
+.runtime_cache/
+*.joblib
