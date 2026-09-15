@@ -599,39 +599,118 @@ def plot_hyperparameter_heatmap(aggregated_grid: pd.DataFrame, metric_col: str, 
 
 
 def plot_denoising_comparison(
-    no_dn_patient_scores: pd.DataFrame, dn_patient_scores: pd.DataFrame, out_prefix: Path, cfg: dict,
+    left_patient_scores: pd.DataFrame,
+    right_patient_scores: pd.DataFrame,
+    out_prefix: Path,
+    cfg: dict,
+    left_label: str = "no_dn",
+    right_label: str = "dn",
+    title: str | None = None,
+    score_label: str = "Puntaje por paciente",
+    threshold: float = 0.0,
+    score_limits: tuple[float, float] | None = None,
 ) -> None:
-    """Comparacion emparejada por paciente: puntaje no_dn frente a dn.
+    """Comparacion emparejada por paciente entre dos condiciones.
+
+    Con los valores por defecto produce exactamente la figura no_dn frente a
+    dn de la SVM (margenes centrados en 0). La CNN la reutiliza para no_dn/dn
+    y sin/con augmentation pasando etiquetas, umbral 0.5 y limites [0, 1].
 
     Emparejar por ``patient_uid`` exige que ambas condiciones cubran la misma
-    poblacion (la ablacion filtra ambas ramas por ``dn_reliable`` para
-    garantizarlo); un paciente presente en una sola de las dos tablas se
-    excluye del emparejamiento y se reporta aparte.
+    poblacion; un paciente presente en una sola de las dos tablas se excluye
+    del emparejamiento y se reporta aparte.
     """
-    merged = no_dn_patient_scores.merge(
-        dn_patient_scores, on="patient_uid", suffixes=("_no_dn", "_dn"), how="inner",
+    left_suffix, right_suffix = f"_{left_label}", f"_{right_label}"
+    merged = left_patient_scores.merge(
+        right_patient_scores, on="patient_uid", suffixes=(left_suffix, right_suffix), how="inner",
     )
-    only_no_dn = set(no_dn_patient_scores["patient_uid"]) - set(dn_patient_scores["patient_uid"])
-    only_dn = set(dn_patient_scores["patient_uid"]) - set(no_dn_patient_scores["patient_uid"])
+    only_left = set(left_patient_scores["patient_uid"]) - set(right_patient_scores["patient_uid"])
+    only_right = set(right_patient_scores["patient_uid"]) - set(left_patient_scores["patient_uid"])
     merged.to_csv(out_prefix.with_suffix(".csv"), index=False)
-    if only_no_dn or only_dn:
+    if only_left or only_right:
         pd.DataFrame({
-            "solo_en_no_dn": sorted(only_no_dn) + [""] * max(0, len(only_dn) - len(only_no_dn)),
-            "solo_en_dn": sorted(only_dn) + [""] * max(0, len(only_no_dn) - len(only_dn)),
+            f"solo_en_{left_label}": sorted(only_left) + [""] * max(0, len(only_right) - len(only_left)),
+            f"solo_en_{right_label}": sorted(only_right) + [""] * max(0, len(only_left) - len(only_right)),
         }).to_csv(out_prefix.with_name(out_prefix.name + "_no_emparejados.csv"), index=False)
 
+    left_col, right_col = f"score{left_suffix}", f"score{right_suffix}"
     fig, ax = plt.subplots(figsize=(5.5, 5.5))
-    labels = merged["target_label_no_dn"]
+    labels = merged[f"target_label{left_suffix}"]
     colors = np.where(labels == ev.POSITIVE_LABEL, "tab:red", "tab:blue")
-    ax.scatter(merged["score_no_dn"], merged["score_dn"], c=colors, alpha=0.8)
-    limit = float(np.nanmax(np.abs(merged[["score_no_dn", "score_dn"]].to_numpy()))) if len(merged) else 1.0
-    limit = max(limit, 1.0)
-    ax.plot([-limit, limit], [-limit, limit], linestyle="--", color="gray")
-    ax.axhline(0, color="black", linewidth=0.5)
-    ax.axvline(0, color="black", linewidth=0.5)
-    ax.set_xlabel("Puntaje por paciente (no_dn)")
-    ax.set_ylabel("Puntaje por paciente (dn)")
-    ax.set_title("Comparacion emparejada: no_dn frente a dn")
+    ax.scatter(merged[left_col], merged[right_col], c=colors, alpha=0.8)
+    if score_limits is None:
+        limit = float(np.nanmax(np.abs(merged[[left_col, right_col]].to_numpy()))) if len(merged) else 1.0
+        limit = max(limit, 1.0)
+        low, high = -limit, limit
+    else:
+        low, high = score_limits
+    ax.plot([low, high], [low, high], linestyle="--", color="gray")
+    ax.axhline(threshold, color="black", linewidth=0.5)
+    ax.axvline(threshold, color="black", linewidth=0.5)
+    ax.set_xlabel(f"{score_label} ({left_label})")
+    ax.set_ylabel(f"{score_label} ({right_label})")
+    ax.set_title(title or f"Comparacion emparejada: {left_label} frente a {right_label}")
+    fig.tight_layout()
+    _save_figure(fig, out_prefix, cfg)
+
+
+def plot_parameter_heatmap(
+    table: pd.DataFrame,
+    index_col: str,
+    columns_col: str,
+    metric_col: str,
+    out_prefix: Path,
+    cfg: dict,
+    index_label: str | None = None,
+    columns_label: str | None = None,
+) -> None:
+    """Mapa de calor generico de una metrica de validacion sobre dos
+    hiperparametros (en la CNN: learning rate x dropout)."""
+    table.to_csv(out_prefix.with_suffix(".csv"), index=False)
+    pivot = table.pivot(index=index_col, columns=columns_col, values=metric_col).sort_index()
+
+    fig, ax = plt.subplots(figsize=(5.5, 4.5))
+    im = ax.imshow(pivot.to_numpy(dtype=float), cmap="viridis", aspect="auto")
+    ax.set_xticks(range(len(pivot.columns)))
+    ax.set_xticklabels([f"{c:g}" if isinstance(c, (int, float)) else str(c) for c in pivot.columns])
+    ax.set_yticks(range(len(pivot.index)))
+    ax.set_yticklabels([f"{c:g}" if isinstance(c, (int, float)) else str(c) for c in pivot.index])
+    ax.set_xlabel(columns_label or columns_col)
+    ax.set_ylabel(index_label or index_col)
+    ax.set_title(f"Mapa de calor: {metric_col} en validacion")
+    for i in range(pivot.shape[0]):
+        for j in range(pivot.shape[1]):
+            value = pivot.iat[i, j]
+            if pd.notna(value):
+                ax.text(j, i, f"{value:.3f}", ha="center", va="center", color="white")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    _save_figure(fig, out_prefix, cfg)
+
+
+def plot_training_curves(history: pd.DataFrame, out_prefix: Path, cfg: dict) -> None:
+    """Perdida (train y validation) y balanced accuracy de validation por
+    epoca, una curva por configuracion (lr, dropout) de la busqueda."""
+    history.to_csv(out_prefix.with_suffix(".csv"), index=False)
+    if history.empty:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    for (_, lr, dropout), group in history.groupby(["config_index", "lr", "dropout"], sort=True):
+        label = f"lr={lr:g}, dropout={dropout:g}"
+        (line,) = axes[0].plot(group["epoch"], group["train_loss"], label=f"{label} (train)")
+        axes[0].plot(group["epoch"], group["val_loss"], linestyle="--", color=line.get_color(),
+                     label=f"{label} (validation)")
+        axes[1].plot(group["epoch"], group["val_balanced_accuracy"], color=line.get_color(), label=label)
+    axes[0].set_xlabel("Epoca")
+    axes[0].set_ylabel("Perdida BCE")
+    axes[0].set_title("Perdida por epoca")
+    axes[0].legend(fontsize=7)
+    axes[1].set_xlabel("Epoca")
+    axes[1].set_ylabel("Balanced accuracy por paciente")
+    axes[1].set_title("Balanced accuracy en validation")
+    axes[1].set_ylim(0, 1.05)
+    axes[1].legend(fontsize=7)
     fig.tight_layout()
     _save_figure(fig, out_prefix, cfg)
 

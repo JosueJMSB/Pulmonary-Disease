@@ -108,3 +108,6 @@ modeling/cache/
 modeling/runs/
 .runtime_cache/
 *.joblib
+# Checkpoints de la CNN (model_fold.pt, final_model.pt) y sus temporales.
+*.pt
+*.pt.part

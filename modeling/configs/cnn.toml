@@ -1,0 +1,228 @@
+# Configuracion versionada de la CNN 2D propia (PLAN-CNN.md).
+#
+# [acoustic] y [logmel] son copia exacta de configs/svm_rbf.toml: la CNN usa la
+# misma STFT y el mismo Log-Mel intermedio cuyos resumenes alimentan a la SVM.
+# --dry-run verifica que ambas copias sigan siendo identicas.
+#
+# No hay rutas personales: --data-root / --runs-root / --cache-root, o las
+# variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT,
+# resuelven donde viven datos, resultados y cache en cada maquina.
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+# 1 + (segment_length - n_fft) // hop_length con center=False.
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[splits]
+# Mismos folds que la SVM: misma semilla sobre la misma poblacion de pacientes.
+n_splits = 5
+random_state = 20260914
+
+[weights]
+# w_s = 1 / (N_c * R_p * S_r), normalizado a media 1 dentro del conjunto que se
+# entrena. Se aplica una sola vez, en BCEWithLogitsLoss, sin pos_weight.
+normalize_to_mean_one = true
+
+[normalization]
+# Media y desviacion por banda Mel, calculadas solo con el conjunto que se
+# entrena en cada paso: train durante la busqueda, train+validation al
+# reajustar y todos los pacientes en el modelo final. Se ponderan con los
+# mismos w_s de la perdida, igual que el StandardScaler de la SVM: sin ponderar,
+# la clase mayoritaria (COPD en ICBHI) dominaria la estadistica.
+axis = "mel_band"
+weighted = true
+std_floor = 1e-6
+
+[cnn]
+in_channels = 1
+channels = [32, 64, 128, 256]
+hidden_units = 128
+# 4 bloques Conv3x3 sin bias + BN (1 172 640) + Dense 256->128 con bias + BN
+# (33 152) + Dense 128->1 (129).
+expected_parameters = 1205921
+
+[training]
+optimizer = "adamw"
+weight_decay = 1e-4
+batch_size = 32
+# Solo para inferencia en validation/test: no afecta al entrenamiento.
+eval_batch_size = 256
+max_epochs = 150
+min_epochs = 20
+patience = 15
+grad_clip_norm = 1.0
+scheduler = "cosine"
+t_max = 150
+eta_min = 1e-6
+# Solo se activa en CUDA; en CPU se ignora.
+amp = true
+
+# Cuatro configuraciones por fold. El indice (orden de aparicion) es tambien el
+# ultimo criterio de desempate.
+[[search.configurations]]
+lr = 1e-3
+dropout = 0.3
+
+[[search.configurations]]
+lr = 3e-4
+dropout = 0.3
+
+[[search.configurations]]
+lr = 1e-3
+dropout = 0.5
+
+[[search.configurations]]
+lr = 3e-4
+dropout = 0.5
+
+[selection]
+# Documentacion del orden que aplica models/cnn.py::selection_key, tanto para
+# elegir la mejor epoca como la mejor configuracion.
+criteria = [
+    "balanced_accuracy",
+    "macro_f1",
+    "min_class_recall",
+    "neg_val_loss",
+    "config_order",
+]
+
+[evaluation]
+# Probabilidad media por paciente >= 0.5 -> COPD.
+decision_threshold = 0.5
+
+[augmentation]
+# Solo en entrenamiento, sobre el Log-Mel ya normalizado.
+time_mask_max_frames = 20
+time_mask_probability = 0.5
+freq_mask_max_bands = 6
+freq_mask_probability = 0.5
+# 0 equivale a la media de la banda tras normalizar.
+fill_value = 0.0
+
+[seeds]
+base = 20260914
+
+[determinism]
+cudnn_deterministic = true
+deterministic_algorithms = true
+# true: una operacion sin implementacion determinista emite una advertencia
+# (que se registra en warnings.json del fold) en vez de abortar el fold.
+warn_only = true
+
+[bootstrap]
+n_resamples = 2000
+confidence = 0.95
+random_state = 20260914
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+# Relativos a la raiz del repositorio; los resultados quedan en
+# <runs-root>/cnn/<run_id>/ y la cache en <cache-root>/<dataset>/<rama>/.
+default_data_root = "modeling/data/copd_vs_control"
+default_runs_root = "modeling/runs"
+default_cache_root = "modeling/cache/logmel"
+
+[datasets.ICBHI]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Healthy"
+negative_label_name = "Healthy"
+
+[datasets.FRAIWAN_Extended]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Normal"
+negative_label_name = "Normal"
+
+# ---------------------------------------------------------------------------
+# Condiciones. Las cinco primeras repiten exactamente las de la SVM. La
+# ablacion de augmentation reutiliza main_no_dn como lado "sin augmentation" y
+# anade main_no_dn_aug, que toma fold a fold el lr y dropout elegidos por
+# main_no_dn (hyperparameters_from) y solo elige su propia mejor epoca.
+# ---------------------------------------------------------------------------
+
+[experiments.main]
+description = "Condicion principal: no_dn, todas las grabaciones elegibles."
+
+[experiments.main.ICBHI]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.main.FRAIWAN_Extended]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Ablacion no_dn vs dn, restringida a grabaciones dn_reliable=True."
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "no_dn_reliable"
+branch = "no_dn"
+dn_reliable_only = true
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "dn_reliable"
+branch = "dn"
+dn_reliable_only = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[experiments.augmentation_ablation]
+description = "Ablacion sin/con SpecAugment sobre main_no_dn, mismos pacientes y folds."
+
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "main_no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "main_no_dn"
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
+condition = "main_no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "main_no_dn"

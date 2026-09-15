@@ -1,10 +1,16 @@
-"""CLI unico del experimento SVM-RBF.
+"""CLI unico de los experimentos de modelado (SVM-RBF y CNN).
 
     python -u -m modeling.run_experiment \
         --model svm_rbf --dataset all --experiment all --n-jobs 4 \
         --data-root <ruta> --runs-root <ruta>
 
-No hay rutas personales en este archivo: ``--data-root``/``--runs-root``/
+    python -u -m modeling.run_experiment \
+        --model cnn --dataset all --experiment all --device cuda:0 \
+        --data-root <ruta> --runs-root <ruta> --cache-root <ruta>
+
+``--model cnn`` carga ``configs/cnn.toml`` y despacha a
+``modeling.cnn_experiment``; ``--model svm_rbf`` sigue exactamente el flujo de
+este archivo. No hay rutas personales: ``--data-root``/``--runs-root``/
 ``--cache-root``, o las variables ``PULMONARY_DATA_ROOT`` /
 ``PULMONARY_RUNS_ROOT`` / ``PULMONARY_CACHE_ROOT``, resuelven donde viven los
 datos y los resultados en cada maquina (ver ``modeling.data.resolve_path``).
@@ -17,6 +23,7 @@ import copy
 import hashlib
 import json
 import logging
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -29,9 +36,11 @@ from . import evaluation as ev
 from . import splits as sp
 from .models import svm_rbf as svm_model
 
-MODEL_CHOICES = ("svm_rbf",)
+MODEL_CHOICES = ("svm_rbf", "cnn")
 DATASET_CHOICES = ("ICBHI", "FRAIWAN_Extended", "all")
-EXPERIMENT_CHOICES = ("main", "denoising_ablation", "all")
+EXPERIMENT_CHOICES = ("main", "denoising_ablation", "augmentation_ablation", "all")
+CONFIG_PATHS = {"svm_rbf": dmod.DEFAULT_CONFIG_PATH, "cnn": dmod.CNN_CONFIG_PATH}
+DEVICE_PATTERN = re.compile(r"^(auto|cpu|cuda|cuda:\d+)$")
 
 # Pareja (lado no_dn, lado dn) de cada dataset en la ablacion, para la figura
 # de comparacion emparejada. En Fraiwan el lado no_dn es la misma condicion
@@ -48,25 +57,54 @@ ABLATION_PAIRS = {
 # CLI
 # ---------------------------------------------------------------------------
 
+def _device_arg(value: str) -> str:
+    if not DEVICE_PATTERN.match(value):
+        raise argparse.ArgumentTypeError("use auto, cpu, cuda o cuda:N")
+    return value
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Entrena y evalua SVM-RBF para COPD vs Control, dataset por dataset."
+        description="Entrena y evalua modelos COPD vs Control (SVM-RBF o CNN), dataset por dataset."
     )
     parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
     parser.add_argument("--dataset", choices=DATASET_CHOICES, required=True)
-    parser.add_argument("--experiment", choices=EXPERIMENT_CHOICES, required=True)
-    parser.add_argument("--n-jobs", type=int, required=True)
+    parser.add_argument(
+        "--experiment", choices=EXPERIMENT_CHOICES, required=True,
+        help="augmentation_ablation solo existe para la CNN.",
+    )
+    parser.add_argument(
+        "--n-jobs", type=int, default=1,
+        help="Procesos para la busqueda de la SVM (por defecto 1). La CNN no lo usa.",
+    )
+    parser.add_argument(
+        "--device", type=_device_arg, default="auto",
+        help="Solo CNN: auto, cpu, cuda o cuda:N (por defecto auto).",
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=2,
+        help="Solo CNN: workers del DataLoader (por defecto 2).",
+    )
     parser.add_argument("--data-root", type=Path, default=None)
     parser.add_argument("--runs-root", type=Path, default=None)
     parser.add_argument(
         "--cache-root", type=Path, default=None,
-        help="Cache de caracteristicas (no listada como obligatoria en el plan, "
-             "pero necesaria; por defecto PULMONARY_CACHE_ROOT o modeling/cache/features).",
+        help="Cache de caracteristicas (SVM) o Log-Mel (CNN); por defecto PULMONARY_CACHE_ROOT "
+             "o la ruta de [paths] del TOML del modelo.",
     )
-    parser.add_argument("--config", type=Path, default=None, help="Ruta alternativa a svm_rbf.toml")
+    parser.add_argument(
+        "--config", type=Path, default=None,
+        help="Ruta alternativa al TOML (por defecto configs/svm_rbf.toml o configs/cnn.toml).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Valida formas, hashes, conteos y folds; no entrena.")
-    parser.add_argument("--smoke-test", action="store_true", help="Solo el fold 1 y la primera combinacion (C, gamma).")
-    parser.add_argument("--force-features", action="store_true", help="Regenera la cache de caracteristicas.")
+    parser.add_argument(
+        "--smoke-test", action="store_true",
+        help="SVM: fold 1 y una combinacion (C, gamma). CNN: fold 1, una configuracion y dos epocas.",
+    )
+    parser.add_argument(
+        "--force-features", action="store_true",
+        help="Regenera la cache de caracteristicas (SVM) o de Log-Mel (CNN).",
+    )
     parser.add_argument(
         "--resume", nargs="?", const="latest", default=None, metavar="RUN_ID",
         help="Continua una ejecucion existente (RUN_ID o, sin valor, la mas reciente).",
@@ -78,8 +116,11 @@ def resolve_datasets(cfg: dict, dataset_arg: str) -> list[str]:
     return dmod.dataset_names(cfg) if dataset_arg == "all" else [dataset_arg]
 
 
-def resolve_experiments(experiment_arg: str) -> list[str]:
-    return ["main", "denoising_ablation"] if experiment_arg == "all" else [experiment_arg]
+def resolve_experiments(experiment_arg: str, cfg: dict) -> list[str]:
+    """``all`` son todos los experimentos del TOML del modelo, en su orden:
+    main y denoising_ablation para la SVM; ademas augmentation_ablation para
+    la CNN."""
+    return dmod.experiment_names(cfg) if experiment_arg == "all" else [experiment_arg]
 
 
 def plan_conditions(cfg: dict, datasets: list[str], experiments: list[str]) -> list[dmod.ConditionSpec]:
@@ -114,8 +155,8 @@ RUN_FINGERPRINT_CONFIG_SECTIONS = (
 )
 
 
-def _config_run_fingerprint(cfg: dict) -> str:
-    relevant = {k: cfg[k] for k in RUN_FINGERPRINT_CONFIG_SECTIONS if k in cfg}
+def _config_run_fingerprint(cfg: dict, sections: tuple[str, ...] = RUN_FINGERPRINT_CONFIG_SECTIONS) -> str:
+    relevant = {k: cfg[k] for k in sections if k in cfg}
     payload = json.dumps(relevant, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -132,7 +173,13 @@ def _input_hashes_for_specs(data_root: Path, specs: list[dmod.ConditionSpec]) ->
 
 
 def build_run_fingerprint(
-    cfg: dict, data_root: Path, specs: list[dmod.ConditionSpec], dataset_arg: str, experiment_arg: str,
+    cfg: dict,
+    data_root: Path,
+    specs: list[dmod.ConditionSpec],
+    dataset_arg: str,
+    experiment_arg: str,
+    sections: tuple[str, ...] = RUN_FINGERPRINT_CONFIG_SECTIONS,
+    extra: dict | None = None,
 ) -> dict:
     """Todo lo que define si una ejecucion es 'la misma' para --resume.
 
@@ -141,13 +188,21 @@ def build_run_fingerprint(
     ``splits.random_state``/``splits.n_splits`` (dentro de la configuracion
     fingerprint-ada), asi que verificar datos + configuracion basta para
     garantizar que los folds serian identicos si se reconstruyeran.
+
+    ``sections`` elige que secciones del TOML entran en la huella (la CNN usa
+    las suyas) y ``extra`` anade datos JSON-nativos que no viven en el TOML
+    (arquitectura, modo --smoke-test). Con los valores por defecto la huella
+    de la SVM es identica a la de versiones anteriores.
     """
-    return {
+    fingerprint = {
         "dataset_arg": dataset_arg,
         "experiment_arg": experiment_arg,
-        "config_fingerprint": _config_run_fingerprint(cfg),
+        "config_fingerprint": _config_run_fingerprint(cfg, sections),
         "input_hashes": _input_hashes_for_specs(data_root, specs),
     }
+    if extra is not None:
+        fingerprint["extra"] = extra
+    return fingerprint
 
 
 def _run_fingerprint_path(run_root: Path) -> Path:
@@ -180,9 +235,11 @@ def verify_run_fingerprint(run_root: Path, fingerprint: dict) -> None:
     if stored.get("experiment_arg") != fingerprint["experiment_arg"]:
         mismatches.append(f"--experiment cambio: {stored.get('experiment_arg')} -> {fingerprint['experiment_arg']}")
     if stored.get("config_fingerprint") != fingerprint["config_fingerprint"]:
+        mismatches.append("la configuracion del TOML cambio en alguna seccion incluida en la huella")
+    if stored.get("extra") != fingerprint.get("extra"):
         mismatches.append(
-            "la configuracion cambio (acoustic/logmel/mfcc/summary/splits/weights/svm/"
-            "selection/bootstrap/datasets/experiments)"
+            f"cambio la arquitectura, el modelo o el modo --smoke-test: "
+            f"{stored.get('extra')} -> {fingerprint.get('extra')}"
         )
     stored_hashes = stored.get("input_hashes", {})
     for key, value in fingerprint["input_hashes"].items():
@@ -568,14 +625,24 @@ def summarize_condition(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    cfg = dmod.load_config(args.config)
+    cfg = dmod.load_config(args.config or CONFIG_PATHS[args.model])
+
+    if args.experiment != "all" and args.experiment not in cfg["experiments"]:
+        print(f"--experiment {args.experiment} no esta definido para --model {args.model}", file=sys.stderr)
+        return 2
+
+    if args.model == "cnn":
+        # Import diferido: el entorno de la SVM no necesita PyTorch instalado.
+        from .cnn_experiment import run_cnn
+
+        return run_cnn(args, cfg)
 
     data_root = dmod.resolve_data_root(args.data_root, cfg)
     cache_root = dmod.resolve_cache_root(args.cache_root, cfg)
     runs_root = dmod.resolve_runs_root(args.runs_root, cfg)
 
     datasets = resolve_datasets(cfg, args.dataset)
-    experiments = resolve_experiments(args.experiment)
+    experiments = resolve_experiments(args.experiment, cfg)
     specs = plan_conditions(cfg, datasets, experiments)
 
     if args.dry_run:

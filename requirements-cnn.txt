@@ -1,0 +1,7 @@
+-r requirements-modeling.txt
+# PyTorch se instala con la rueda CUDA que corresponda al driver del servidor
+# (ver la cabecera de `nvidia-smi`), por ejemplo:
+#   pip install -r requirements-cnn.txt --extra-index-url https://download.pytorch.org/whl/cu126
+# Tras instalar, fije aqui la version exacta obtenida (`pip freeze | grep torch`).
+# Cada ejecucion registra ademas torch, CUDA, cuDNN y la GPU en environment.txt.
+torch>=2.6,<3

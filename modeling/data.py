@@ -71,13 +71,18 @@ class ConditionSpec:
     branch: str
     dn_reliable_only: bool
     reused_from_main: bool = False
+    # Solo CNN. ``augment`` activa SpecAugment en entrenamiento;
+    # ``hyperparameters_from`` indica la condicion cuyo lr/dropout se reutiliza
+    # fold a fold en vez de buscarlos. Con los valores por defecto, la SVM no
+    # cambia en nada.
+    augment: bool = False
+    hyperparameters_from: str | None = None
 
 
 def experiment_condition_specs(cfg: dict, experiment: str, dataset: str) -> list[ConditionSpec]:
-    """Condiciones de un experimento (``main`` / ``denoising_ablation``) para
-    un dataset. La entrada del TOML es una tabla unica para ``main`` y una
-    lista de tablas para ``denoising_ablation``; ambas formas se normalizan
-    aqui a una lista."""
+    """Condiciones de un experimento para un dataset. La entrada del TOML puede
+    ser una tabla unica (``main``) o una lista de tablas (las ablaciones);
+    ambas formas se normalizan aqui a una lista."""
     entry = cfg["experiments"][experiment][dataset]
     entries = entry if isinstance(entry, list) else [entry]
     return [
@@ -87,16 +92,25 @@ def experiment_condition_specs(cfg: dict, experiment: str, dataset: str) -> list
             branch=e["branch"],
             dn_reliable_only=bool(e["dn_reliable_only"]),
             reused_from_main=bool(e.get("reused_from_main", False)),
+            augment=bool(e.get("augment", False)),
+            hyperparameters_from=e.get("hyperparameters_from"),
         )
         for e in entries
     ]
 
 
+def experiment_names(cfg: dict) -> list[str]:
+    """Experimentos definidos en el TOML, en su orden de aparicion."""
+    return list(cfg["experiments"].keys())
+
+
 def all_condition_specs(cfg: dict, dataset: str) -> list[ConditionSpec]:
-    """Union de las condiciones de ``main`` y ``denoising_ablation`` para un
+    """Union de las condiciones de todos los experimentos del TOML para un
     dataset, deduplicadas por (condicion, rama)."""
     seen: dict[tuple[str, str], ConditionSpec] = {}
-    for experiment in ("main", "denoising_ablation"):
+    for experiment in experiment_names(cfg):
+        if dataset not in cfg["experiments"][experiment]:
+            continue
         for spec in experiment_condition_specs(cfg, experiment, dataset):
             seen[(spec.condition, spec.branch)] = spec
     return list(seen.values())
@@ -385,3 +399,192 @@ def compute_sample_weights(segments: pd.DataFrame) -> np.ndarray:
     if not np.isfinite(mean_weight) or mean_weight <= 0:
         raise ValueError("los pesos calculados no son validos (media no finita o <= 0)")
     return weights / mean_weight
+
+
+# ---------------------------------------------------------------------------
+# Cache Log-Mel para la CNN: (N, 1, n_mels, n_frames) float32 por dataset y
+# RAMA, alineada fila a fila con segments.csv (fila i = task_array_index i).
+# Reutiliza exactamente compute_stft_magnitude + compute_logmel_db de
+# features/logmel.py: la CNN ve la misma representacion intermedia que la SVM.
+# No importa torch: el entorno de la SVM sigue funcionando sin PyTorch.
+# ---------------------------------------------------------------------------
+
+CNN_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "cnn.toml"
+LOGMEL_CONFIG_SECTIONS = ("acoustic", "logmel")
+LOGMEL_COMPARE_KEYS = ("segments_csv_sha256", "segments_npy_sha256", "config_fingerprint", "shape", "dtype")
+
+
+def logmel_config_fingerprint(cfg: dict) -> str:
+    relevant = {k: cfg[k] for k in LOGMEL_CONFIG_SECTIONS}
+    payload = json.dumps(relevant, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def logmel_cache_dir(cache_root: Path, dataset: str, branch: str) -> Path:
+    return Path(cache_root) / dataset / branch
+
+
+def logmel_cache_paths(cache_dir: Path) -> dict[str, Path]:
+    return {
+        "logmel": cache_dir / "logmel.npy",
+        "rows": cache_dir / "logmel_rows.csv",
+        "schema": cache_dir / "logmel_schema.json",
+        "manifest": cache_dir / "logmel_manifest.json",
+    }
+
+
+def logmel_shape(cfg: dict, n_segments: int) -> tuple[int, int, int, int]:
+    return (int(n_segments), 1, int(cfg["logmel"]["n_mels"]), int(cfg["acoustic"]["expected_frames"]))
+
+
+def _logmel_expected_manifest(data_root: Path, dataset: str, branch: str, cfg: dict, n_segments: int) -> dict:
+    csv_path = Path(data_root) / dataset / "segments.csv"
+    npy_path = Path(data_root) / dataset / f"segments_{branch}.npy"
+    if not npy_path.is_file():
+        raise FileNotFoundError(f"no existe {npy_path}")
+    return {
+        "dataset": dataset,
+        "branch": branch,
+        "segments_csv_sha256": sha256_file(csv_path),
+        "segments_npy_sha256": sha256_file(npy_path),
+        "config_fingerprint": logmel_config_fingerprint(cfg),
+        "shape": list(logmel_shape(cfg, n_segments)),
+        "dtype": "float32",
+    }
+
+
+def _ordered_segments(data_root: Path, dataset: str) -> pd.DataFrame:
+    segments = load_task_segments(data_root, dataset)
+    ordered = segments.sort_values("task_array_index").reset_index(drop=True)
+    if not np.array_equal(ordered["task_array_index"].to_numpy(), np.arange(len(ordered))):
+        raise ValueError(f"{dataset}: task_array_index no es 0..n-1 consecutivo")
+    return ordered
+
+
+def logmel_cache_status(data_root: Path, cache_root: Path, dataset: str, branch: str, cfg: dict) -> tuple[str, str]:
+    """``("valida" | "ausente" | "desactualizada", detalle)`` sin extraer nada.
+
+    Una cache ausente o desactualizada no es un error: la ejecucion la
+    regenera. --dry-run solo informa en que estado esta.
+    """
+    ordered = _ordered_segments(data_root, dataset)
+    paths = logmel_cache_paths(logmel_cache_dir(cache_root, dataset, branch))
+    if not all(p.is_file() for p in paths.values()):
+        return "ausente", "se generara al ejecutar"
+    expected = _logmel_expected_manifest(data_root, dataset, branch, cfg, len(ordered))
+    stored = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    changed = [k for k in LOGMEL_COMPARE_KEYS if stored.get(k) != expected[k]]
+    if changed:
+        return "desactualizada", "cambio: " + ", ".join(changed)
+    if stored.get("output_sha256") != sha256_file(paths["logmel"]):
+        return "desactualizada", "logmel.npy no coincide con el hash registrado"
+    return "valida", f"forma {tuple(expected['shape'])}"
+
+
+def extract_or_load_logmel(
+    data_root: Path,
+    cache_root: Path,
+    dataset: str,
+    branch: str,
+    cfg: dict,
+    force: bool = False,
+    progress=None,
+) -> tuple[np.ndarray, pd.DataFrame]:
+    """Log-Mel ``(N, 1, n_mels, n_frames)`` de TODOS los segmentos de un
+    dataset/rama, cacheado en disco.
+
+    Se reutiliza si coinciden los hashes de ``segments.csv`` y del ``.npy``,
+    la huella de [acoustic]/[logmel], la forma y el hash del propio
+    ``logmel.npy``. ``progress(hechos, total)`` se llama cada 500 segmentos.
+    La escritura va a ``logmel.npy.part`` via ``open_memmap`` (que, a
+    diferencia de ``np.save``, no altera el nombre) y se publica con
+    ``os.replace`` solo al terminar.
+    """
+    import gc
+
+    ordered = _ordered_segments(data_root, dataset)
+    expected = _logmel_expected_manifest(data_root, dataset, branch, cfg, len(ordered))
+    cache_dir = logmel_cache_dir(cache_root, dataset, branch)
+    paths = logmel_cache_paths(cache_dir)
+
+    if not force and all(p.is_file() for p in paths.values()):
+        stored = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+        if (all(stored.get(k) == expected[k] for k in LOGMEL_COMPARE_KEYS)
+                and stored.get("output_sha256") == sha256_file(paths["logmel"])):
+            rows = pd.read_csv(paths["rows"], dtype={"audio_id": str, "patient_uid": str, "segment_id": str})
+            logmel = np.load(paths["logmel"])
+            if (logmel.shape == tuple(expected["shape"]) and logmel.dtype == np.float32
+                    and rows["segment_id"].equals(ordered["segment_id"])):
+                return logmel, rows
+
+    array = load_branch_array(data_root, dataset, branch)
+    segment_length = int(cfg["acoustic"]["segment_length"])
+    if array.shape != (len(ordered), segment_length):
+        raise ValueError(
+            f"{dataset}/{branch}: .npy de forma {array.shape}, se esperaba ({len(ordered)}, {segment_length})"
+        )
+
+    shape = logmel_shape(cfg, len(ordered))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tmp = paths["logmel"].with_name(paths["logmel"].name + ".part")
+    out = np.lib.format.open_memmap(str(tmp), mode="w+", dtype=np.float32, shape=shape)
+    try:
+        for i in range(shape[0]):
+            magnitude, _ = feat.logmel.compute_stft_magnitude(np.asarray(array[i], dtype=np.float64), cfg["acoustic"])
+            out[i, 0] = feat.logmel.compute_logmel_db(magnitude, cfg).astype(np.float32)
+            if progress is not None and ((i + 1) % 500 == 0 or i + 1 == shape[0]):
+                progress(i + 1, shape[0])
+        out.flush()
+    finally:
+        # El memmap debe cerrarse antes del os.replace (obligatorio en Windows).
+        del out
+        gc.collect()
+    os.replace(tmp, paths["logmel"])
+
+    ordered[FEATURE_ROW_COLUMNS].to_csv(paths["rows"], index=False, lineterminator="\n")
+    schema = {
+        "shape": list(shape),
+        "dtype": "float32",
+        "axes": ["segment", "channel", "mel_band", "frame"],
+        "row_order": "task_array_index",
+        "sample_rate": int(cfg["acoustic"]["sample_rate"]),
+        "hop_length": int(cfg["acoustic"]["hop_length"]),
+        "n_mels": int(cfg["logmel"]["n_mels"]),
+        "fmin": cfg["logmel"]["fmin"],
+        "fmax": cfg["logmel"]["fmax"],
+        "units": "dB (power_to_db, ref=1.0)",
+    }
+    paths["schema"].write_text(json.dumps(schema, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    manifest = {**expected, "n_segments": int(shape[0]), "output_sha256": sha256_file(paths["logmel"])}
+    paths["manifest"].write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    return np.load(paths["logmel"]), ordered[FEATURE_ROW_COLUMNS]
+
+
+@dataclass
+class ConditionLogmel:
+    """Segmentos de una condicion + el Log-Mel completo de su dataset/rama.
+
+    No se copia el subconjunto: ``segments["cache_row"]`` indica la fila de
+    cada segmento en ``logmel``, de modo que varias condiciones de la misma
+    rama comparten un unico array en memoria.
+    """
+
+    spec: ConditionSpec
+    segments: pd.DataFrame
+    logmel: np.ndarray
+
+
+def build_condition_logmel(
+    data_root: Path, spec: ConditionSpec, logmel: np.ndarray, rows: pd.DataFrame,
+) -> ConditionLogmel:
+    ordered = _ordered_segments(data_root, spec.dataset)
+    if not ordered["segment_id"].equals(rows["segment_id"]):
+        raise RuntimeError(
+            f"{spec.dataset}/{spec.branch}: segments.csv y la cache Log-Mel no estan alineados fila a fila"
+        )
+    if logmel.shape[0] != len(ordered):
+        raise RuntimeError(f"{spec.dataset}/{spec.branch}: {logmel.shape[0]} filas Log-Mel para {len(ordered)} segmentos")
+    ordered["cache_row"] = np.arange(len(ordered), dtype=np.int64)
+    selected = select_condition_segments(ordered, spec)
+    return ConditionLogmel(spec=spec, segments=selected, logmel=logmel)
