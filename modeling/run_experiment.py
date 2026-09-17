@@ -36,10 +36,14 @@ from . import evaluation as ev
 from . import splits as sp
 from .models import svm_rbf as svm_model
 
-MODEL_CHOICES = ("svm_rbf", "cnn")
+MODEL_CHOICES = ("svm_rbf", "cnn", "crnn")
 DATASET_CHOICES = ("ICBHI", "FRAIWAN_Extended", "all")
 EXPERIMENT_CHOICES = ("main", "denoising_ablation", "augmentation_ablation", "all")
-CONFIG_PATHS = {"svm_rbf": dmod.DEFAULT_CONFIG_PATH, "cnn": dmod.CNN_CONFIG_PATH}
+CONFIG_PATHS = {
+    "svm_rbf": dmod.DEFAULT_CONFIG_PATH,
+    "cnn": dmod.CNN_CONFIG_PATH,
+    "crnn": dmod.CRNN_CONFIG_PATH,
+}
 DEVICE_PATTERN = re.compile(r"^(auto|cpu|cuda|cuda:\d+)$")
 
 # Pareja (lado no_dn, lado dn) de cada dataset en la ablacion, para la figura
@@ -65,45 +69,47 @@ def _device_arg(value: str) -> str:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Entrena y evalua modelos COPD vs Control (SVM-RBF o CNN), dataset por dataset."
+        description="Entrena y evalua modelos COPD vs Control (SVM-RBF, CNN o CRNN), dataset por dataset."
     )
     parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
     parser.add_argument("--dataset", choices=DATASET_CHOICES, required=True)
     parser.add_argument(
         "--experiment", choices=EXPERIMENT_CHOICES, required=True,
-        help="augmentation_ablation solo existe para la CNN.",
+        help="augmentation_ablation solo existe para la CNN y la CRNN.",
     )
     parser.add_argument(
         "--n-jobs", type=int, default=1,
-        help="Procesos para la busqueda de la SVM (por defecto 1). La CNN no lo usa.",
+        help="Procesos para la busqueda de la SVM (por defecto 1). CNN y CRNN no lo usan.",
     )
     parser.add_argument(
         "--device", type=_device_arg, default="auto",
-        help="Solo CNN: auto, cpu, cuda o cuda:N (por defecto auto).",
+        help="Solo CNN/CRNN: auto, cpu, cuda o cuda:N (por defecto auto).",
     )
     parser.add_argument(
         "--num-workers", type=int, default=2,
-        help="Solo CNN: workers del DataLoader (por defecto 2).",
+        help="Solo CNN/CRNN: workers del DataLoader (por defecto 2).",
     )
     parser.add_argument("--data-root", type=Path, default=None)
     parser.add_argument("--runs-root", type=Path, default=None)
     parser.add_argument(
         "--cache-root", type=Path, default=None,
-        help="Cache de caracteristicas (SVM) o Log-Mel (CNN); por defecto PULMONARY_CACHE_ROOT "
-             "o la ruta de [paths] del TOML del modelo.",
+        help="Cache de caracteristicas (SVM) o Log-Mel compartida (CNN/CRNN); por defecto "
+             "PULMONARY_CACHE_ROOT o la ruta de [paths] del TOML del modelo.",
     )
     parser.add_argument(
         "--config", type=Path, default=None,
-        help="Ruta alternativa al TOML (por defecto configs/svm_rbf.toml o configs/cnn.toml).",
+        help="Ruta alternativa al TOML (por defecto configs/svm_rbf.toml, configs/cnn.toml "
+             "o configs/crnn.toml segun --model).",
     )
     parser.add_argument("--dry-run", action="store_true", help="Valida formas, hashes, conteos y folds; no entrena.")
     parser.add_argument(
         "--smoke-test", action="store_true",
-        help="SVM: fold 1 y una combinacion (C, gamma). CNN: fold 1, una configuracion y dos epocas.",
+        help="SVM: fold 1 y una combinacion (C, gamma). CNN/CRNN: fold 1, una configuracion y dos epocas.",
     )
     parser.add_argument(
         "--force-features", action="store_true",
-        help="Regenera la cache de caracteristicas (SVM) o de Log-Mel (CNN).",
+        help="Regenera la cache de caracteristicas (SVM) o de Log-Mel (solo CNN; la CRNN lo rechaza "
+             "para no sobrescribir la cache compartida).",
     )
     parser.add_argument(
         "--resume", nargs="?", const="latest", default=None, metavar="RUN_ID",
@@ -253,6 +259,22 @@ def verify_run_fingerprint(run_root: Path, fingerprint: dict) -> None:
             f"--resume rechazado para {run_root}: no coincide con la ejecucion original.\n  - "
             + "\n  - ".join(mismatches)
         )
+
+
+def open_run(runs_root: Path, model: str, resume: str | None, fingerprint: dict) -> tuple[Path, str]:
+    """Crea una ejecucion nueva o localiza la que se quiere reanudar.
+
+    Con --resume, ``art.init_run`` solo localiza el directorio y la huella se
+    verifica ANTES de cualquier escritura: no se abre run.log, no cambia
+    status.json y no se tocan environment.txt, resolved_config.toml ni el
+    staging abandonado. Si la huella no coincide se lanza RuntimeError y la
+    ejecucion existente queda byte a byte como estaba. Lo usan la SVM, la CNN
+    y la CRNN.
+    """
+    run_root, run_id = art.init_run(runs_root, model, resume, bool(resume))
+    if resume:
+        verify_run_fingerprint(run_root, fingerprint)
+    return run_root, run_id
 
 
 # ---------------------------------------------------------------------------
@@ -631,8 +653,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"--experiment {args.experiment} no esta definido para --model {args.model}", file=sys.stderr)
         return 2
 
-    if args.model == "cnn":
-        # Import diferido: el entorno de la SVM no necesita PyTorch instalado.
+    if args.model in ("cnn", "crnn"):
+        # El TOML debe describir la misma red que --model: evita, por ejemplo,
+        # entrenar una CRNN y guardarla bajo runs/cnn con --config cnn.toml.
+        architecture = dmod.model_architecture(cfg)
+        if architecture != args.model:
+            print(f"--model {args.model} con un TOML de arquitectura {architecture!r}", file=sys.stderr)
+            return 2
+        # Imports diferidos: el entorno de la SVM no necesita PyTorch instalado.
+        if args.model == "crnn":
+            from .crnn_experiment import run_crnn
+
+            return run_crnn(args, cfg)
         from .cnn_experiment import run_cnn
 
         return run_cnn(args, cfg)
@@ -652,30 +684,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nveredicto: {'OK' if report['ok'] else 'REVISAR'}")
         return 0 if report["ok"] else 1
 
-    run_root, run_id = art.init_run(runs_root, args.model, args.resume, bool(args.resume))
+    # --resume: la huella se verifica ANTES de abrir run.log o escribir
+    # cualquier archivo de la ejecucion existente (status.json,
+    # environment.txt, resolved_config.toml, staging). Si no coincide, se sale
+    # con error y la ejecucion queda intacta (ver open_run).
+    fingerprint = build_run_fingerprint(cfg, data_root, specs, args.dataset, args.experiment)
+    try:
+        run_root, run_id = open_run(runs_root, args.model, args.resume, fingerprint)
+    except (RuntimeError, FileNotFoundError, FileExistsError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     logger = art.setup_run_logger(run_root)
     logger.info(
         f"run_id={run_id} dataset={args.dataset} experiment={args.experiment} "
         f"n_jobs={args.n_jobs} smoke_test={args.smoke_test} resume={bool(args.resume)}"
     )
-
-    # --resume: TODO lo que sigue en este bloque debe ocurrir en este orden
-    # exacto. verify_run_fingerprint() es lo primero -antes de tocar
-    # status.json, environment.txt, resolved_config.toml o borrar staging
-    # abandonado-, porque cualquiera de esas escrituras es irreversible y
-    # aqui todavia no se sabe si esta ejecucion es compatible con la
-    # original. Si la huella no coincide, se devuelve sin haber mutado nada
-    # de eso (solo se registra el rechazo en status.json, ya como resultado
-    # de la verificacion, no como paso previo a ella).
-    fingerprint = build_run_fingerprint(cfg, data_root, specs, args.dataset, args.experiment)
     if args.resume:
-        try:
-            verify_run_fingerprint(run_root, fingerprint)
-        except RuntimeError as exc:
-            logger.error(str(exc))
-            art.write_status(run_root, art.STATUS_FAILED, {"error": str(exc)})
-            print(str(exc), file=sys.stderr)
-            return 1
         logger.info("run_fingerprint verificado: datos, configuracion y alcance coinciden con la ejecucion original")
 
         removed_staging = art.finalize_resume(run_root)

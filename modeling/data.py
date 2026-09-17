@@ -410,7 +410,22 @@ def compute_sample_weights(segments: pd.DataFrame) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 CNN_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "cnn.toml"
+CRNN_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "crnn.toml"
 LOGMEL_CONFIG_SECTIONS = ("acoustic", "logmel")
+NETWORK_ARCHITECTURES = ("cnn", "crnn")
+
+
+def model_architecture(cfg: dict) -> str:
+    """Red que describe un TOML de redes: ``[model] architecture``.
+
+    cnn.toml no tiene esa seccion y se interpreta como ``"cnn"``, de modo que
+    su configuracion (y su huella de ejecucion) no cambia. Sin dependencia de
+    torch, para que run_experiment pueda validarlo antes de importar PyTorch.
+    """
+    name = str(cfg.get("model", {}).get("architecture", "cnn"))
+    if name not in NETWORK_ARCHITECTURES:
+        raise ValueError(f"[model] architecture desconocida: {name!r} (use {NETWORK_ARCHITECTURES})")
+    return name
 LOGMEL_COMPARE_KEYS = ("segments_csv_sha256", "segments_npy_sha256", "config_fingerprint", "shape", "dtype")
 
 

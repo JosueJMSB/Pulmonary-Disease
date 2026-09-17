@@ -105,7 +105,18 @@ class CopdCNN(nn.Module):
         return self.head(x)
 
 
-def build_model(cfg: dict, dropout: float) -> CopdCNN:
+def build_model(cfg: dict, dropout: float) -> nn.Module:
+    """Red del experimento segun ``[model] architecture`` del TOML.
+
+    Todo el protocolo de este modulo (entrenamiento, folds, normalizacion,
+    checkpoints) es compartido por la CNN y la CRNN: solo este punto, la
+    descripcion de arquitectura y la reconstruccion desde checkpoint cambian.
+    Sin la seccion [model] (cnn.toml) se construye la CNN.
+    """
+    if dmod.model_architecture(cfg) == "crnn":
+        from . import crnn as crnn_arch
+
+        return crnn_arch.build_crnn(cfg, dropout)
     model_cfg = cfg["cnn"]
     return CopdCNN(
         in_channels=int(model_cfg.get("in_channels", 1)),
@@ -119,8 +130,17 @@ def count_parameters(model: nn.Module) -> int:
     return int(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
 
+def expected_parameters(cfg: dict) -> int:
+    """``expected_parameters`` de la seccion de la red activa ([cnn] o [crnn])."""
+    return int(cfg[dmod.model_architecture(cfg)]["expected_parameters"])
+
+
 def architecture_description(cfg: dict) -> dict:
     """Descripcion JSON-nativa de la arquitectura, para huella y metadata."""
+    if dmod.model_architecture(cfg) == "crnn":
+        from . import crnn as crnn_arch
+
+        return crnn_arch.crnn_architecture_description(cfg)
     model_cfg = cfg["cnn"]
     return {
         "class": ARCHITECTURE_NAME,
@@ -1015,14 +1035,30 @@ def load_checkpoint(path) -> dict:
     return torch.load(path, map_location="cpu", weights_only=True)
 
 
-def model_from_checkpoint(payload: dict) -> CopdCNN:
+def model_from_checkpoint(payload: dict) -> nn.Module:
+    """Reconstruye la CNN o la CRNN a partir de ``payload["architecture"]``.
+
+    Una clase desconocida se rechaza de forma explicita: asumir que es una CNN
+    produciria un error confuso al cargar los pesos o, peor, una red distinta.
+    """
     architecture = payload["architecture"]
-    model = CopdCNN(
-        in_channels=int(architecture["in_channels"]),
-        channels=tuple(int(c) for c in architecture["channels"]),
-        hidden_units=int(architecture["hidden_units"]),
-        dropout=float(architecture["dropout"]),
-    )
+    from . import crnn as crnn_arch
+
+    class_name = architecture.get("class")
+    if class_name == crnn_arch.ARCHITECTURE_NAME:
+        model = crnn_arch.model_from_architecture(architecture)
+    elif class_name == ARCHITECTURE_NAME:
+        model = CopdCNN(
+            in_channels=int(architecture["in_channels"]),
+            channels=tuple(int(c) for c in architecture["channels"]),
+            hidden_units=int(architecture["hidden_units"]),
+            dropout=float(architecture["dropout"]),
+        )
+    else:
+        raise ValueError(
+            f"clase de arquitectura desconocida en el checkpoint: {class_name!r} "
+            f"(se admiten {ARCHITECTURE_NAME!r} y {crnn_arch.ARCHITECTURE_NAME!r})"
+        )
     model.load_state_dict(payload["state_dict"])
     model.eval()
     return model

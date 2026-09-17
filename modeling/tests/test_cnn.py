@@ -262,3 +262,59 @@ def test_resume_rejects_incompatible_fingerprint(tmp_path, cfg):
         changed[section][key] = value
         with pytest.raises(RuntimeError):
             rexp.verify_run_fingerprint(run_root, fingerprint(changed, extra))
+
+
+def test_checkpoint_with_unknown_architecture_is_rejected(cfg):
+    model = cnn_model.build_model(cfg, dropout=0.3)
+    payload = {
+        "architecture": {**cnn_model.architecture_description(cfg), "class": "OtraRed", "dropout": 0.3},
+        "state_dict": model.state_dict(),
+    }
+    with pytest.raises(ValueError, match="OtraRed"):
+        cnn_model.model_from_checkpoint(payload)
+
+
+def test_run_cnn_incompatible_resume_leaves_status_and_log_intact(tmp_path, cfg, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from ..cnn_experiment import run_cnn
+
+    # Evita cambiar el modo determinista global de torch dentro de la suite.
+    monkeypatch.setattr(cnn_model, "configure_determinism", lambda _cfg: None)
+
+    data_root = tmp_path / "data"
+    dataset_dir = data_root / "ICBHI"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "segments.csv").write_text("segment_id\nS0\n", encoding="utf-8")
+    np.save(dataset_dir / "segments_no_dn.npy", np.zeros((1, 4), dtype=np.float32))
+
+    runs_root = tmp_path / "runs"
+    run_root = runs_root / "cnn" / "20260101T000000Z_abcdef"
+    staging = run_root / "datasets" / "ICBHI" / "main_no_dn" / "fold_01_staging"
+    staging.mkdir(parents=True)
+    (staging / "parcial.csv").write_text("a\n1\n", encoding="utf-8")
+    (run_root / "status.json").write_text('{"status": "PARTIAL"}\n', encoding="utf-8")
+    (run_root / "run.log").write_text("linea original del log\n", encoding="utf-8")
+    rexp.write_run_fingerprint(run_root, {
+        "dataset_arg": "all", "experiment_arg": "all",
+        "config_fingerprint": "otra-configuracion", "input_hashes": {},
+    })
+
+    def snapshot():
+        return {
+            p.relative_to(run_root).as_posix(): (p.read_bytes() if p.is_file() else None)
+            for p in sorted(run_root.rglob("*"))
+        }
+
+    before = snapshot()
+    args = SimpleNamespace(
+        model="cnn", dataset="ICBHI", experiment="main", data_root=data_root, runs_root=runs_root,
+        cache_root=tmp_path / "cache", dry_run=False, smoke_test=False, device="cpu", num_workers=0,
+        force_features=False, resume="20260101T000000Z_abcdef",
+    )
+
+    assert run_cnn(args, cfg) == 1
+    assert "--resume rechazado" in capsys.readouterr().err
+    assert snapshot() == before
+    assert (run_root / "status.json").read_text(encoding="utf-8") == '{"status": "PARTIAL"}\n'
+    assert (run_root / "run.log").read_text(encoding="utf-8") == "linea original del log\n"

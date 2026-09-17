@@ -282,3 +282,85 @@ pytest modeling/tests
 
 `test_logmel_cache.py` no necesita PyTorch. `test_cnn.py` se omite si PyTorch
 no esta instalado; con PyTorch corre en CPU y con datos sinteticos.
+
+---
+
+## CRNN (CNN + BiGRU + atencion temporal): COPD frente a Control
+
+Tercer modelo, entrenado desde cero con el **mismo protocolo que la CNN**
+(folds, pesos, normalizacion, busqueda lr x dropout, seleccion por validation,
+reajuste, test unico, OOF, bootstrap, Dummy, siete condiciones). Usa las
+dependencias de `requirements-cnn.txt`; no hace falta ninguna libreria nueva.
+
+### Arquitectura (1 192 482 parametros)
+
+```text
+Entrada Log-Mel                                     (B, 1, 64, 309)
+4 bloques [Conv3x3-BN-ReLU x2 + MaxPool]            canales 32, 64, 128, 128
+  pooling (frec, tiempo): (2,2) (2,2) (2,1) (2,1)   (B, 128, 4, 77)
+Reordenar                                           (B, 77, 512)
+Linear(512->128, sin bias) + LayerNorm + ReLU       (B, 77, 128)
+BiGRU 2 capas, 128 por direccion, dropout 0.2       (B, 77, 256)
+Atencion Linear(256->64)-tanh-Linear(64->1)-softmax pesos (B, 77) -> (B, 256)
+Linear(256->128) + BN + ReLU + Dropout + Linear(128->1)  logit (B, 1)
+```
+
+| Parte | Parametros |
+|---|---:|
+| Frente convolucional | 582 304 |
+| Proyeccion | 65 792 |
+| BiGRU | 494 592 |
+| Atencion | 16 513 |
+| Cabeza | 33 281 |
+
+El frente convolucional esta **adaptado** respecto al de la CNN (ultimo bloque
+de 128 canales y pooling que conserva el tiempo), no es identico. El dropout
+buscado es el de la cabeza; el de la GRU es fijo. `forward(x)` devuelve
+logits; `forward(x, return_attention=True)` devuelve tambien los 77 pesos de
+atencion (suman 1). Los pasos estan separados ~64 ms, pero cada uno integra un
+contexto acustico mayor: **los pesos de atencion no son una localizacion
+clinica de crepitantes o sibilancias**.
+
+### Archivos
+
+```text
+modeling/
+├── configs/crnn.toml        [model] architecture = "crnn", [crnn] y copia exacta del protocolo de cnn.toml
+├── models/crnn.py           Solo la red (CopdCRNN, TemporalAttention)
+└── crnn_experiment.py       --model crnn: validaciones propias y delega en cnn_experiment
+```
+
+`models/cnn.py` elige la red por `[model] architecture` (sin esa seccion, CNN),
+de modo que entrenamiento, folds, normalizacion y checkpoints son el mismo
+codigo para ambos modelos.
+
+### Ejecucion
+
+```bash
+python -u -m modeling.run_experiment --model crnn --dataset all --experiment all \
+  --device cuda:0 --data-root /ruta/a/copd_vs_control \
+  --runs-root /ruta/a/runs --cache-root /ruta/a/cache/logmel --dry-run
+```
+
+Las mismas opciones que la CNN (`--smoke-test`, `--resume`, `--num-workers`),
+con estas diferencias:
+
+- **Configuracion bloqueante:** no arranca si `crnn.toml` difiere de `cnn.toml`
+  en alguna seccion del protocolo (`--dry-run` lo muestra como `*_igual_cnn`).
+- **Cache Log-Mel compartida con la CNN:** se reutiliza si es valida y se
+  genera solo si falta o esta desactualizada. `--force-features` se rechaza
+  con `--model crnn` para no sobrescribir la cache de otro modelo.
+- **Resultados** en `<runs-root>/crnn/<run_id>/`, con la misma estructura que
+  la CNN. La huella de `--resume` incluye `[model]` y `[crnn]`.
+- **Metadatos preservados:** las predicciones por segmento conservan paciente,
+  grabacion, segmento y dispositivo para el benchmarking posterior. Los pesos
+  de atencion no se guardan en esta etapa; se pueden recalcular desde
+  `model_fold.pt`.
+
+### Pruebas
+
+`tests/test_crnn.py`, en CPU y con datos sinteticos, se omite si no hay PyTorch.
+Cubre la configuracion igual a la CNN, el conteo total y por partes, las formas
+intermedias, los pesos de atencion finitos que suman 1, los gradientes en todos
+los parametros, el fold completo del protocolo compartido, el checkpoint y el
+rechazo de un `--resume` incompatible.

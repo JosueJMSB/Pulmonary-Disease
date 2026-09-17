@@ -49,6 +49,50 @@ PAIRED_COMPARISONS = {
     ),
 }
 
+# La CRNN (``[model] architecture = "crnn"``) usa este mismo modulo: solo
+# cambian la seccion de arquitectura en la huella y el directorio de resultados.
+CRNN_FINGERPRINT_SECTIONS = tuple(s for s in CNN_FINGERPRINT_SECTIONS if s != "cnn") + ("model", "crnn")
+
+# Secciones que crnn.toml debe copiar sin cambios de cnn.toml. [acoustic] y
+# [logmel] garantizan ademas que la cache Log-Mel compartida sea la correcta.
+SHARED_PROTOCOL_SECTIONS = (
+    "acoustic", "logmel", "splits", "weights", "normalization", "training", "search",
+    "selection", "evaluation", "augmentation", "seeds", "determinism", "bootstrap",
+    "datasets", "experiments",
+)
+
+
+def fingerprint_sections(cfg: dict) -> tuple[str, ...]:
+    return CRNN_FINGERPRINT_SECTIONS if dmod.model_architecture(cfg) == "crnn" else CNN_FINGERPRINT_SECTIONS
+
+
+def config_consistency_checks(cfg: dict) -> list[dict]:
+    """Comparaciones de configuracion con los otros modelos.
+
+    ``blocking=True`` impide ejecutar: la CRNN no arranca si difiere de
+    cnn.toml en alguna seccion del protocolo, porque perderia la
+    comparabilidad con la CNN y podria regenerar (sobrescribir) la cache
+    Log-Mel compartida. Para la CNN solo se informa si [acoustic]/[logmel]
+    difieren de la SVM, como hasta ahora.
+    """
+    svm_cfg = dmod.load_config(dmod.DEFAULT_CONFIG_PATH)
+    same_logmel = all(cfg.get(s) == svm_cfg.get(s) for s in dmod.LOGMEL_CONFIG_SECTIONS)
+    checks = [{
+        "check": "logmel_igual_svm", "ok": same_logmel, "blocking": False,
+        "detail": "[acoustic] y [logmel] identicos a svm_rbf.toml" if same_logmel
+        else "[acoustic]/[logmel] difieren de svm_rbf.toml",
+    }]
+    if dmod.model_architecture(cfg) == "crnn":
+        cnn_cfg = dmod.load_config(dmod.CNN_CONFIG_PATH)
+        for section in SHARED_PROTOCOL_SECTIONS:
+            same = cfg.get(section) == cnn_cfg.get(section)
+            checks.append({
+                "check": f"{section}_igual_cnn", "ok": same, "blocking": True,
+                "detail": "identico a cnn.toml" if same
+                else "difiere de cnn.toml: se pierde la comparabilidad con la CNN",
+            })
+    return checks
+
 
 # ---------------------------------------------------------------------------
 # Utilidades
@@ -372,7 +416,7 @@ def _ensure_final_model(
     _write_json(run.normalization.to_dict(), staging / "normalization.json")
 
     metadata = {
-        "model": MODEL_NAME,
+        "model": dmod.model_architecture(cfg),
         "dataset": spec.dataset,
         "condition": spec.condition,
         "branch": spec.branch,
@@ -540,10 +584,8 @@ def dry_run(data_root: Path, cache_root: Path, cfg: dict, specs: list[dmod.Condi
         verdict["ok"] = verdict["ok"] and bool(passed)
         rows.append({"dataset": dataset, "check": check, "ok": bool(passed), "detail": detail})
 
-    svm_cfg = dmod.load_config(dmod.DEFAULT_CONFIG_PATH)
-    same_logmel = all(cfg.get(s) == svm_cfg.get(s) for s in dmod.LOGMEL_CONFIG_SECTIONS)
-    add("-", "logmel_igual_svm", same_logmel,
-        "[acoustic] y [logmel] identicos a svm_rbf.toml" if same_logmel else "cnn.toml difiere de svm_rbf.toml")
+    for check in config_consistency_checks(cfg):
+        add("-", check["check"], check["ok"], check["detail"])
 
     for dataset, branch in sorted({(s.dataset, s.branch) for s in specs}):
         try:
@@ -565,12 +607,13 @@ def dry_run(data_root: Path, cache_root: Path, cfg: dict, specs: list[dmod.Condi
         except Exception as exc:  # noqa: BLE001
             add(spec.dataset, f"clases[{spec.condition}]", False, str(exc))
 
+    parameters_check = f"parametros_{dmod.model_architecture(cfg)}"
     try:
         n_parameters = cnn_model.architecture_description(cfg)["n_parameters"]
-        expected = int(cfg["cnn"]["expected_parameters"])
-        add("-", "parametros_cnn", n_parameters == expected, f"{n_parameters} (esperado {expected})")
+        expected = cnn_model.expected_parameters(cfg)
+        add("-", parameters_check, n_parameters == expected, f"{n_parameters} (esperado {expected})")
     except Exception as exc:  # noqa: BLE001
-        add("-", "parametros_cnn", False, str(exc))
+        add("-", parameters_check, False, str(exc))
 
     try:
         device = cnn_model.resolve_device(device_arg)
@@ -647,6 +690,15 @@ def run_cnn(args, cfg: dict) -> int:
     if args.dry_run:
         return dry_run(data_root, cache_root, cfg, specs, args.device)
 
+    # "cnn" o "crnn": decide el directorio <runs-root>/<modelo>/, la huella y
+    # la metadata. La CRNN reutiliza todo este flujo (ver crnn_experiment.py).
+    model_name = dmod.model_architecture(cfg)
+    blocking = [c for c in config_consistency_checks(cfg) if c["blocking"] and not c["ok"]]
+    if blocking:
+        for check in blocking:
+            print(f"{check['check']}: {check['detail']}", file=sys.stderr)
+        return 1
+
     cnn_model.configure_determinism(cfg)
     try:
         device = cnn_model.resolve_device(args.device)
@@ -657,38 +709,36 @@ def run_cnn(args, cfg: dict) -> int:
         torch.cuda.set_device(device)
 
     architecture = cnn_model.architecture_description(cfg)
-    expected_parameters = int(cfg["cnn"]["expected_parameters"])
+    expected_parameters = cnn_model.expected_parameters(cfg)
     if architecture["n_parameters"] != expected_parameters:
         print(
             f"la arquitectura tiene {architecture['n_parameters']} parametros; "
-            f"cnn.toml espera {expected_parameters}",
+            f"{model_name}.toml espera {expected_parameters}",
             file=sys.stderr,
         )
         return 1
 
-    run_root, run_id = art.init_run(runs_root, MODEL_NAME, args.resume, bool(args.resume))
+    # Con --resume, la huella se verifica ANTES de abrir run.log o escribir
+    # cualquier archivo de la ejecucion existente. Si no coincide, se sale con
+    # error y la ejecucion queda intacta (ver run_experiment.open_run).
+    fingerprint = rexp.build_run_fingerprint(
+        cfg, data_root, specs, args.dataset, args.experiment,
+        sections=fingerprint_sections(cfg),
+        extra={"model": model_name, "architecture": architecture, "smoke_test": bool(args.smoke_test)},
+    )
+    try:
+        run_root, run_id = rexp.open_run(runs_root, model_name, args.resume, fingerprint)
+    except (RuntimeError, FileNotFoundError, FileExistsError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     logger = art.setup_run_logger(run_root)
     logger.info(
-        f"run_id={run_id} model=cnn dataset={args.dataset} experiment={args.experiment} "
+        f"run_id={run_id} model={model_name} dataset={args.dataset} experiment={args.experiment} "
         f"device={cnn_model.device_description(device)} num_workers={args.num_workers} "
         f"smoke_test={args.smoke_test} resume={bool(args.resume)} parametros={architecture['n_parameters']}"
     )
-
-    # Mismo orden que la SVM: con --resume, verificar la huella ANTES de tocar
-    # status.json, environment.txt, resolved_config.toml o el staging abandonado.
-    fingerprint = rexp.build_run_fingerprint(
-        cfg, data_root, specs, args.dataset, args.experiment,
-        sections=CNN_FINGERPRINT_SECTIONS,
-        extra={"model": MODEL_NAME, "architecture": architecture, "smoke_test": bool(args.smoke_test)},
-    )
     if args.resume:
-        try:
-            rexp.verify_run_fingerprint(run_root, fingerprint)
-        except RuntimeError as exc:
-            logger.error(str(exc))
-            art.write_status(run_root, art.STATUS_FAILED, {"error": str(exc)})
-            print(str(exc), file=sys.stderr)
-            return 1
         logger.info("run_fingerprint verificado: datos, configuracion, arquitectura y modo coinciden")
         removed_staging = art.finalize_resume(run_root)
         if removed_staging:
