@@ -107,3 +107,105 @@ def test_bootstrap_requires_both_classes():
     y_score = np.array([1.0, 2.0, 3.0])
     with pytest.raises(ValueError):
         ev.bootstrap_confidence_interval(y_true, y_score, ev.metric_fn_auroc())
+
+
+# ---------------------------------------------------------------------------
+# source_dataset (dataset COMBINED): propagacion y metricas/reportes/IC por
+# fuente, ademas de los globales.
+# ---------------------------------------------------------------------------
+
+def _oof_patients_two_sources() -> pd.DataFrame:
+    return pd.DataFrame([
+        {"patient_uid": "A1", "target_label": 1, "score": 2.0, "source_dataset": "ICBHI"},
+        {"patient_uid": "A2", "target_label": 1, "score": 1.5, "source_dataset": "ICBHI"},
+        {"patient_uid": "A3", "target_label": 0, "score": -1.0, "source_dataset": "ICBHI"},
+        {"patient_uid": "A4", "target_label": 0, "score": -2.0, "source_dataset": "ICBHI"},
+        {"patient_uid": "B1", "target_label": 1, "score": 1.0, "source_dataset": "FRAIWAN"},
+        {"patient_uid": "B2", "target_label": 1, "score": -0.5, "source_dataset": "FRAIWAN"},
+        {"patient_uid": "B3", "target_label": 0, "score": -1.5, "source_dataset": "FRAIWAN"},
+        {"patient_uid": "B4", "target_label": 0, "score": 0.5, "source_dataset": "FRAIWAN"},
+    ])
+
+
+def test_compute_metrics_by_source_splits_by_source():
+    result = ev.compute_metrics_by_source(
+        _oof_patients_two_sources(), "source_dataset", negative_label_name="Control", threshold=0.0,
+    )
+    assert set(result["source_dataset"]) == {"ICBHI", "FRAIWAN"}
+    by_source = result.set_index("source_dataset")
+    assert by_source.loc["ICBHI", "recall_copd"] == pytest.approx(1.0)
+    assert by_source.loc["ICBHI", "recall_control"] == pytest.approx(1.0)
+    assert by_source.loc["FRAIWAN", "recall_copd"] == pytest.approx(0.5)
+    assert by_source.loc["FRAIWAN", "recall_control"] == pytest.approx(0.5)
+
+
+def test_classification_report_by_source_tags_each_row():
+    report = ev.classification_report_by_source_df(
+        _oof_patients_two_sources(), "source_dataset", target_names=("Control", "COPD"), threshold=0.0,
+    )
+    assert set(report["source_dataset"]) == {"ICBHI", "FRAIWAN"}
+    assert "class" in report.columns
+
+
+def test_confusion_matrix_by_source_is_long_format():
+    matrix = ev.confusion_matrix_by_source_df(
+        _oof_patients_two_sources(), "source_dataset", target_names=("Control", "COPD"), threshold=0.0,
+    )
+    assert set(matrix["source_dataset"]) == {"ICBHI", "FRAIWAN"}
+    assert set(matrix["real"]) == {"real_Control", "real_COPD"}
+    assert len(matrix) == 4  # 2 clases reales x 2 fuentes
+
+
+def test_bootstrap_by_source_one_row_per_metric_and_source():
+    ci_specs = {"balanced_accuracy": ev.metric_fn_balanced_accuracy(0.0)}
+    result = ev.bootstrap_by_source_df(
+        _oof_patients_two_sources(), "source_dataset", ci_specs,
+        n_resamples=50, confidence=0.95, random_state=0,
+    )
+    assert len(result) == 2
+    assert set(result["source_dataset"]) == {"ICBHI", "FRAIWAN"}
+    assert set(result["metric"]) == {"balanced_accuracy"}
+
+
+def test_by_source_report_none_without_source_column():
+    df = _oof_patients_two_sources().drop(columns=["source_dataset"])
+    assert ev.by_source_report(df, "source_dataset", "Control", 0.0, {}, {}) is None
+
+
+def test_by_source_report_none_with_a_single_source():
+    df = _oof_patients_two_sources()
+    df = df[df["source_dataset"] == "ICBHI"]
+    assert ev.by_source_report(df, "source_dataset", "Control", 0.0, {}, {}) is None
+
+
+def test_by_source_report_returns_all_four_tables():
+    ci_specs = {"balanced_accuracy": ev.metric_fn_balanced_accuracy(0.0)}
+    bootstrap_cfg = {"n_resamples": 50, "confidence": 0.95, "random_state": 0}
+    report = ev.by_source_report(
+        _oof_patients_two_sources(), "source_dataset", "Control", 0.0, ci_specs, bootstrap_cfg,
+    )
+    assert set(report) == {
+        "metrics_by_source", "classification_report_by_source",
+        "confusion_matrix_by_source", "bootstrap_by_source",
+    }
+
+
+def test_attach_source_dataset_maps_by_patient():
+    oof_patients = pd.DataFrame([
+        {"patient_uid": "P1", "target_label": 1, "score": 1.0},
+        {"patient_uid": "P2", "target_label": 0, "score": -1.0},
+    ])
+    segments = pd.DataFrame([
+        {"patient_uid": "P1", "dataset": "ICBHI"},
+        {"patient_uid": "P1", "dataset": "ICBHI"},
+        {"patient_uid": "P2", "dataset": "FRAIWAN"},
+    ])
+    out = ev.attach_source_dataset(oof_patients, segments)
+    assert out.set_index("patient_uid")["source_dataset"].to_dict() == {"P1": "ICBHI", "P2": "FRAIWAN"}
+
+
+def test_attach_source_dataset_noop_without_dataset_column():
+    oof_patients = pd.DataFrame([{"patient_uid": "P1", "target_label": 1, "score": 1.0}])
+    segments = pd.DataFrame([{"patient_uid": "P1"}])
+    out = ev.attach_source_dataset(oof_patients, segments)
+    assert "source_dataset" not in out.columns

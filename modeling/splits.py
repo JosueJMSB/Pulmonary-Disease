@@ -37,6 +37,12 @@ def build_patient_table(segments: pd.DataFrame) -> pd.DataFrame:
     con valores mixtos de ``calibration_patient``: ambos son invariantes del
     manifiesto de origen y una violacion indica un problema de datos, no algo
     que deba promediarse o ignorarse en silencio.
+
+    Si ``segments`` trae una columna ``dataset`` (siempre presente en la
+    salida real de ``prepare_task_data``/``prepare_combined_task_data``, pero
+    opcional aqui para no romper pruebas que arman segmentos sinteticos sin
+    ella), se añade ``source_dataset`` con la misma validacion de unicidad por
+    paciente que ``target_label``/``calibration_patient``.
     """
     required = {"patient_uid", "target_label", "calibration_patient"}
     missing = required - set(segments.columns)
@@ -56,23 +62,37 @@ def build_patient_table(segments: pd.DataFrame) -> pd.DataFrame:
             f"pacientes con calibration_patient inconsistente: {bad_calib.index.tolist()}"
         )
 
-    table = grouped.agg(
+    agg_kwargs = dict(
         target_label=("target_label", "first"),
         calibration_patient=("calibration_patient", "first"),
         n_recordings=("audio_id", "nunique"),
         n_segments=("segment_id", "size"),
-    ).reset_index()
+    )
+    if "dataset" in segments.columns:
+        n_source = grouped["dataset"].nunique()
+        bad_source = n_source[n_source != 1]
+        if len(bad_source):
+            raise ValueError(f"pacientes con mas de una fuente (dataset): {bad_source.index.tolist()}")
+        agg_kwargs["source_dataset"] = ("dataset", "first")
+
+    table = grouped.agg(**agg_kwargs).reset_index()
     return table
 
 
 def assign_fold_groups(
-    patient_table: pd.DataFrame, n_splits: int = 5, random_state: int = 20260914
+    patient_table: pd.DataFrame,
+    n_splits: int = 5,
+    random_state: int = 20260914,
+    stratify_by_dataset: bool = False,
 ) -> pd.DataFrame:
     """Anade ``fold_group``: -1 para calibracion, 0..n_splits-1 en el resto.
 
     ``StratifiedKFold`` con semilla fija corre solo sobre los pacientes que no
-    son de calibracion, estratificando por ``target_label`` para que cada
-    grupo conserve la proporcion de clases del conjunto evaluable.
+    son de calibracion. Por defecto estratifica solo por ``target_label``; con
+    ``stratify_by_dataset=True`` estratifica por la combinacion
+    ``source_dataset`` + ``target_label`` (requiere que ``patient_table``
+    tenga ``source_dataset``, ver ``build_patient_table``), de modo que cada
+    grupo conserve tambien la proporcion de fuentes del conjunto evaluable.
     """
     table = patient_table.copy()
     table["fold_group"] = CALIBRATION_GROUP
@@ -81,20 +101,32 @@ def assign_fold_groups(
     if evaluable.empty:
         raise ValueError("no hay pacientes evaluables (todos son de calibracion)")
 
-    counts = evaluable["target_label"].value_counts()
-    if len(counts) < 2:
-        raise ValueError(f"la poblacion evaluable tiene una sola clase: {counts.to_dict()}")
+    label_counts = evaluable["target_label"].value_counts()
+    if len(label_counts) < 2:
+        raise ValueError(f"la poblacion evaluable tiene una sola clase: {label_counts.to_dict()}")
+
+    if stratify_by_dataset:
+        if "source_dataset" not in evaluable.columns:
+            raise ValueError(
+                "stratify_by_dataset=True requiere source_dataset en patient_table "
+                "(segments debe traer una columna 'dataset')"
+            )
+        strata = evaluable["source_dataset"].astype(str) + "__" + evaluable["target_label"].astype(str)
+        minority_phrase = "el estrato (fuente+clase) minoritario"
+    else:
+        strata = evaluable["target_label"]
+        minority_phrase = "la clase minoritaria"
+
+    counts = strata.value_counts()
     if counts.min() < n_splits:
         raise ValueError(
-            f"la clase minoritaria tiene {counts.min()} pacientes, "
+            f"{minority_phrase} tiene {counts.min()} pacientes, "
             f"insuficiente para {n_splits} folds estratificados"
         )
 
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     groups = np.empty(len(evaluable), dtype=np.int64)
-    for fold_id, (_, test_idx) in enumerate(
-        skf.split(evaluable["patient_uid"], evaluable["target_label"])
-    ):
+    for fold_id, (_, test_idx) in enumerate(skf.split(evaluable["patient_uid"], strata)):
         groups[test_idx] = fold_id
 
     table.loc[evaluable.index, "fold_group"] = groups
@@ -137,6 +169,7 @@ class PatientFolds:
     patient_table: pd.DataFrame
     fold_table: pd.DataFrame
     n_splits: int
+    stratify_by_dataset: bool = False
 
     def get_split(self, fold_id: int) -> tuple[list[str], list[str], list[str]]:
         """``(train_patients, validation_patients, test_patients)`` del fold."""
@@ -148,25 +181,45 @@ class PatientFolds:
 
 
 def build_patient_folds(
-    segments: pd.DataFrame, n_splits: int = 5, random_state: int = 20260914
+    segments: pd.DataFrame,
+    n_splits: int = 5,
+    random_state: int = 20260914,
+    stratify_by_dataset: bool = False,
 ) -> PatientFolds:
     """Construye y verifica la particion completa a partir de ``segments``."""
     patient_table = build_patient_table(segments)
-    patient_table = assign_fold_groups(patient_table, n_splits=n_splits, random_state=random_state)
+    patient_table = assign_fold_groups(
+        patient_table, n_splits=n_splits, random_state=random_state, stratify_by_dataset=stratify_by_dataset,
+    )
     fold_table = build_fold_table(patient_table, n_splits=n_splits)
-    folds = PatientFolds(patient_table=patient_table, fold_table=fold_table, n_splits=n_splits)
+    folds = PatientFolds(
+        patient_table=patient_table, fold_table=fold_table, n_splits=n_splits,
+        stratify_by_dataset=stratify_by_dataset,
+    )
     verify_folds(folds)
     return folds
 
 
 def verify_folds(folds: PatientFolds) -> None:
-    """Todas las comprobaciones de fuga exigidas por el plan. Lanza si falla."""
+    """Todas las comprobaciones de fuga exigidas por el plan. Lanza si falla.
+
+    Con ``stratify_by_dataset=True`` (y ``source_dataset`` disponible en
+    ``patient_table``), ademas de las dos clases exige que validation y test
+    de cada fold contengan los mismos estratos fuente+clase presentes en la
+    poblacion evaluable (los "cuatro estratos" del plan combinado). Sin eso,
+    el comportamiento es identico al anterior: solo exige ambas clases.
+    """
     patient_table = folds.patient_table
     label_by_patient = dict(zip(patient_table["patient_uid"], patient_table["target_label"]))
     calibration_ids = set(
         patient_table.loc[patient_table["calibration_patient"], "patient_uid"]
     )
     evaluable_ids = set(patient_table["patient_uid"]) - calibration_ids
+
+    check_strata = folds.stratify_by_dataset and "source_dataset" in patient_table.columns
+    if check_strata:
+        source_by_patient = dict(zip(patient_table["patient_uid"], patient_table["source_dataset"]))
+        expected_strata = {(source_by_patient[pid], label_by_patient[pid]) for pid in evaluable_ids}
 
     test_coverage: dict[str, int] = {pid: 0 for pid in evaluable_ids}
 
@@ -186,12 +239,21 @@ def verify_folds(folds: PatientFolds) -> None:
         if calibration_ids & (val_set | test_set):
             raise RuntimeError(f"fold {fold_id}: un paciente de calibracion cayo en val/test")
 
-        for role_name, ids in (("validation", val_set), ("test", test_set)):
-            labels_here = {label_by_patient[pid] for pid in ids}
-            if labels_here != {0, 1}:
-                raise RuntimeError(
-                    f"fold {fold_id}: {role_name} no contiene ambas clases ({labels_here})"
-                )
+        if check_strata:
+            for role_name, ids in (("validation", val_set), ("test", test_set)):
+                strata_here = {(source_by_patient[pid], label_by_patient[pid]) for pid in ids}
+                if strata_here != expected_strata:
+                    raise RuntimeError(
+                        f"fold {fold_id}: {role_name} no contiene los estratos fuente+clase "
+                        f"esperados {sorted(expected_strata)}; se encontraron {sorted(strata_here)}"
+                    )
+        else:
+            for role_name, ids in (("validation", val_set), ("test", test_set)):
+                labels_here = {label_by_patient[pid] for pid in ids}
+                if labels_here != {0, 1}:
+                    raise RuntimeError(
+                        f"fold {fold_id}: {role_name} no contiene ambas clases ({labels_here})"
+                    )
 
         for pid in test_set:
             test_coverage[pid] = test_coverage.get(pid, 0) + 1

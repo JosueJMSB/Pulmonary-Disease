@@ -84,6 +84,33 @@ def test_protocol_difference_is_blocking(cfg):
     assert [c["check"] for c in blocking] == ["training_igual_cnn"]
 
 
+def test_original_crnn_reference_defaults_to_cnn_toml(cfg):
+    # crnn.toml no declara [model] reference_cnn_config: sigue comparandose
+    # con cnn.toml, exactamente como antes de que existiera COMBINED.
+    assert dmod.reference_cnn_config_path(cfg) == dmod.CNN_CONFIG_PATH
+
+
+def test_combined_crnn_compares_against_combined_cnn_toml():
+    combined_crnn_cfg = dmod.load_config(dmod.CNN_CONFIG_PATH.parent / "crnn_combined.toml")
+    combined_cnn_cfg = dmod.load_config(dmod.CNN_CONFIG_PATH.parent / "cnn_combined.toml")
+
+    assert dmod.reference_cnn_config_path(combined_crnn_cfg) == dmod.CNN_CONFIG_PATH.parent / "cnn_combined.toml"
+    for section in SHARED_PROTOCOL_SECTIONS:
+        assert combined_crnn_cfg[section] == combined_cnn_cfg[section], section
+    assert all(check["ok"] for check in config_consistency_checks(combined_crnn_cfg))
+
+
+def test_combined_crnn_flags_difference_from_combined_cnn_toml_not_original():
+    combined_crnn_cfg = dmod.load_config(dmod.CNN_CONFIG_PATH.parent / "crnn_combined.toml")
+    original_cnn_cfg = dmod.load_config(dmod.CNN_CONFIG_PATH)
+    # cnn_combined.toml difiere de cnn.toml en [datasets]/[experiments]
+    # (COMBINED en vez de ICBHI/FRAIWAN_Extended): si la CRNN combinada se
+    # comparara por error contra cnn.toml, esto se marcaria como bloqueante.
+    assert combined_crnn_cfg["datasets"] != original_cnn_cfg["datasets"]
+    blocking = [c["check"] for c in config_consistency_checks(combined_crnn_cfg) if c["blocking"] and not c["ok"]]
+    assert blocking == []
+
+
 def test_parameter_count_is_exact(cfg):
     assert cfg["crnn"]["expected_parameters"] == EXPECTED_PARAMETERS
     for dropout in (0.3, 0.5):

@@ -47,6 +47,10 @@ PAIRED_COMPARISONS = {
         ("main_no_dn", "dn", "denoising"),
         ("main_no_dn", "main_no_dn_aug", "augmentation"),
     ),
+    "COMBINED": (
+        ("no_dn_reliable", "dn_reliable", "denoising"),
+        ("main_no_dn", "main_no_dn_aug", "augmentation"),
+    ),
 }
 
 # La CRNN (``[model] architecture = "crnn"``) usa este mismo modulo: solo
@@ -83,13 +87,15 @@ def config_consistency_checks(cfg: dict) -> list[dict]:
         else "[acoustic]/[logmel] difieren de svm_rbf.toml",
     }]
     if dmod.model_architecture(cfg) == "crnn":
-        cnn_cfg = dmod.load_config(dmod.CNN_CONFIG_PATH)
+        reference_path = dmod.reference_cnn_config_path(cfg)
+        reference_name = reference_path.name
+        cnn_cfg = dmod.load_config(reference_path)
         for section in SHARED_PROTOCOL_SECTIONS:
             same = cfg.get(section) == cnn_cfg.get(section)
             checks.append({
                 "check": f"{section}_igual_cnn", "ok": same, "blocking": True,
-                "detail": "identico a cnn.toml" if same
-                else "difiere de cnn.toml: se pierde la comparabilidad con la CNN",
+                "detail": f"identico a {reference_name}" if same
+                else f"difiere de {reference_name}: se pierde la comparabilidad con la CNN",
             })
     return checks
 
@@ -472,6 +478,8 @@ def summarize_cnn_condition(
     search_summaries = pd.concat([fo["search_summary"] for fo in fold_outputs], ignore_index=True)
     baseline_metrics = pd.concat([fo["baseline_metrics"] for fo in fold_outputs], ignore_index=True)
 
+    oof_patients = ev.attach_source_dataset(oof_patients, condition.segments)
+
     y_true = oof_patients["target_label"].to_numpy()
     y_score = oof_patients["score"].to_numpy()
     oof_metrics = ev.compute_patient_metrics(y_true, y_score, negative_label_name, threshold)
@@ -493,6 +501,12 @@ def summarize_cnn_condition(
         )
         for name, fn in ci_specs.items()
     }
+
+    by_source = None
+    if bool(cfg.get("evaluation", {}).get("report_by_source", False)):
+        by_source = ev.by_source_report(
+            oof_patients, "source_dataset", negative_label_name, threshold, ci_specs, bootstrap_cfg,
+        )
 
     numeric_cols = ["accuracy", "balanced_accuracy", "recall_copd", f"recall_{neg_key}", "macro_f1", "auroc", "auprc_copd"]
     fold_mean = metrics_by_fold[numeric_cols].mean().to_dict()
@@ -535,6 +549,9 @@ def summarize_cnn_condition(
     _write_csv(classification_report, cdir / "classification_report.csv")
     confusion_matrix.to_csv(cdir / "confusion_matrix.csv")
     _write_json(summary_row, cdir / "metrics_summary.json")
+    if by_source is not None:
+        for name, table in by_source.items():
+            _write_csv(table, cdir / f"{name}.csv")
 
     prefix = run_root / "figures" / f"{spec.dataset}__{spec.condition}"
     art.plot_confusion_matrix(y_true, y_score, target_names, prefix.with_name(prefix.name + "__confusion_matrix"), cfg, threshold)
@@ -565,6 +582,7 @@ def summarize_cnn_condition(
         "hyperparameter_search": search_summaries,
         "classification_report": classification_report,
         "confusion_matrix": confusion_matrix,
+        "by_source": by_source,
     }
 
 
@@ -659,6 +677,19 @@ def _write_run_tables(run_root: Path, condition_results: list[dict], folds_by_po
             cm["dataset"], cm["condition"] = r["spec"].dataset, r["spec"].condition
             confusion_frames.append(cm)
         _write_csv(pd.concat(confusion_frames, ignore_index=True), run_root / "confusion_matrix.csv")
+
+        by_source_keys = (
+            "metrics_by_source", "classification_report_by_source",
+            "confusion_matrix_by_source", "bootstrap_by_source",
+        )
+        for key in by_source_keys:
+            frames = [
+                r["summary"]["by_source"][key].assign(dataset=r["spec"].dataset, condition=r["spec"].condition)
+                for r in ok_results
+                if r["summary"].get("by_source")
+            ]
+            if frames:
+                _write_csv(pd.concat(frames, ignore_index=True), run_root / f"{key}.csv")
 
     if folds_by_population:
         tables = []
@@ -778,6 +809,7 @@ def run_cnn(args, cfg: dict) -> int:
                 condition.segments,
                 n_splits=int(cfg["splits"]["n_splits"]),
                 random_state=int(cfg["splits"]["random_state"]),
+                stratify_by_dataset=bool(cfg["splits"].get("stratify_by_dataset", False)),
             )
             if pop_key in folds_by_population:
                 if not sp.folds_are_identical(folds_by_population[pop_key], new_folds):

@@ -426,6 +426,21 @@ def model_architecture(cfg: dict) -> str:
     if name not in NETWORK_ARCHITECTURES:
         raise ValueError(f"[model] architecture desconocida: {name!r} (use {NETWORK_ARCHITECTURES})")
     return name
+
+
+def reference_cnn_config_path(cfg: dict) -> Path:
+    """TOML de CNN contra el que ``cnn_experiment.config_consistency_checks``
+    compara una CRNN.
+
+    Por defecto es ``cnn.toml`` (comportamiento anterior, sin cambios para
+    ``crnn.toml``). ``[model] reference_cnn_config`` permite que una CRNN de
+    otro dataset (por ejemplo ``crnn_combined.toml``) se compare contra su
+    propio TOML de CNN (``cnn_combined.toml``) en vez del original.
+    """
+    name = cfg.get("model", {}).get("reference_cnn_config")
+    if name is None:
+        return CNN_CONFIG_PATH
+    return CNN_CONFIG_PATH.parent / name
 LOGMEL_COMPARE_KEYS = ("segments_csv_sha256", "segments_npy_sha256", "config_fingerprint", "shape", "dtype")
 
 

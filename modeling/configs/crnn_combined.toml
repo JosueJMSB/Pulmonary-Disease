@@ -1,0 +1,190 @@
+# Configuracion versionada de la CRNN sobre el dataset combinado (ICBHI +
+# Fraiwan Extended armonizados en una sola coleccion COMBINED).
+#
+# Todas las secciones del protocolo son copia exacta de configs/cnn_combined.toml:
+# mismo Log-Mel (y por tanto la misma cache), mismos folds, semilla, pesos,
+# normalizacion, busqueda, seleccion, augmentation, condiciones y bootstrap.
+# Solo cambian [model] y [crnn]. La ejecucion se niega a arrancar si alguna
+# seccion compartida difiere de cnn_combined.toml (referenciado explicitamente
+# via [model] reference_cnn_config, ya que la CRNN original se compara con
+# cnn.toml por defecto -- ver cnn_experiment.config_consistency_checks).
+#
+# No hay rutas personales: --data-root / --runs-root / --cache-root, o las
+# variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT.
+
+[model]
+architecture = "crnn"
+reference_cnn_config = "cnn_combined.toml"
+
+[crnn]
+in_channels = 1
+# Cada bloque: dos Conv3x3 sin bias, cada una seguida de BN y ReLU.
+channels = [32, 64, 128, 128]
+# MaxPool (frecuencia, tiempo) al final de cada bloque: la frecuencia se reduce
+# 16x y el tiempo 4x -> salida (128, 4, 77), 77 pasos de ~64 ms.
+pool_sizes = [[2, 2], [2, 2], [2, 1], [2, 1]]
+# (B, 77, 128*4) -> Linear(512, 128, bias=False) + LayerNorm + ReLU
+projection_dim = 128
+gru_hidden = 128
+gru_layers = 2
+gru_dropout = 0.2
+attention_dim = 64
+head_hidden = 128
+# Frente 582 304 + proyeccion 65 792 + BiGRU 494 592 + atencion 16 513 +
+# cabeza 33 281.
+expected_parameters = 1192482
+
+# ---------------------------------------------------------------------------
+# A partir de aqui: copia exacta de cnn_combined.toml.
+# ---------------------------------------------------------------------------
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[splits]
+n_splits = 5
+random_state = 20260914
+stratify_by_dataset = true
+
+[weights]
+normalize_to_mean_one = true
+
+[normalization]
+axis = "mel_band"
+weighted = true
+std_floor = 1e-6
+
+[training]
+optimizer = "adamw"
+weight_decay = 1e-4
+batch_size = 32
+eval_batch_size = 256
+max_epochs = 150
+min_epochs = 20
+patience = 15
+grad_clip_norm = 1.0
+scheduler = "cosine"
+t_max = 150
+eta_min = 1e-6
+amp = true
+
+[[search.configurations]]
+lr = 1e-3
+dropout = 0.3
+
+[[search.configurations]]
+lr = 3e-4
+dropout = 0.3
+
+[[search.configurations]]
+lr = 1e-3
+dropout = 0.5
+
+[[search.configurations]]
+lr = 3e-4
+dropout = 0.5
+
+[selection]
+criteria = [
+    "balanced_accuracy",
+    "macro_f1",
+    "min_class_recall",
+    "neg_val_loss",
+    "config_order",
+]
+
+[evaluation]
+decision_threshold = 0.5
+report_by_source = true
+
+[augmentation]
+time_mask_max_frames = 20
+time_mask_probability = 0.5
+freq_mask_max_bands = 6
+freq_mask_probability = 0.5
+fill_value = 0.0
+
+[seeds]
+base = 20260914
+
+[determinism]
+cudnn_deterministic = true
+deterministic_algorithms = true
+warn_only = true
+
+[bootstrap]
+n_resamples = 2000
+confidence = 0.95
+random_state = 20260914
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+# Misma cache Log-Mel que la CNN combinada; resultados en <runs-root>/crnn/<run_id>/.
+default_data_root = "modeling/data/copd_vs_control_combined"
+default_runs_root = "modeling/runs"
+default_cache_root = "modeling/cache/logmel"
+
+[datasets.COMBINED]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Control"
+negative_label_name = "Control"
+
+[experiments.main]
+description = "Condicion principal: no_dn, todas las grabaciones elegibles."
+
+[experiments.main.COMBINED]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Ablacion no_dn vs dn, restringida a grabaciones dn_reliable=True."
+
+[[experiments.denoising_ablation.COMBINED]]
+condition = "no_dn_reliable"
+branch = "no_dn"
+dn_reliable_only = true
+
+[[experiments.denoising_ablation.COMBINED]]
+condition = "dn_reliable"
+branch = "dn"
+dn_reliable_only = true
+
+[experiments.augmentation_ablation]
+description = "Ablacion sin/con SpecAugment sobre main_no_dn, mismos pacientes y folds."
+
+[[experiments.augmentation_ablation.COMBINED]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.COMBINED]]
+condition = "main_no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "main_no_dn"

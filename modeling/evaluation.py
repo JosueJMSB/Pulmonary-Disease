@@ -263,3 +263,150 @@ def metric_fn_recall_negative(threshold: float = 0.0):
         y_pred = scores_to_predictions(y_score, threshold)
         return recall_score(y_true, y_pred, labels=LABEL_ORDER, average=None, zero_division=0)[0]
     return _fn
+
+
+# ---------------------------------------------------------------------------
+# Metricas, reportes, matrices de confusion e IC bootstrap por fuente
+# (``source_dataset``): mismas funciones de arriba, una vez por cada valor
+# distinto de la columna de fuente. Solo tiene sentido con mas de una fuente
+# en el conjunto (dataset COMBINED); para un dataset de una sola fuente no se
+# usan estas funciones.
+# ---------------------------------------------------------------------------
+
+def attach_source_dataset(
+    patient_df: pd.DataFrame,
+    segments: pd.DataFrame,
+    source_col: str = "dataset",
+    target_col: str = "source_dataset",
+) -> pd.DataFrame:
+    """Propaga la fuente (``dataset`` en ``segments.csv``) segmento -> paciente.
+
+    Se resuelve por ``patient_uid`` (cada paciente pertenece a una sola
+    fuente, ver ``splits.build_patient_table``), sin tocar los puntajes ni la
+    agregacion segmento->grabacion->paciente. Si ``segments`` no trae la
+    columna de origen (datasets de una sola fuente que no la incluyan),
+    devuelve ``patient_df`` sin cambios.
+    """
+    if source_col not in segments.columns:
+        return patient_df
+    patient_source = segments.drop_duplicates("patient_uid").set_index("patient_uid")[source_col]
+    out = patient_df.copy()
+    out[target_col] = out["patient_uid"].map(patient_source)
+    return out
+
+
+def compute_metrics_by_source(
+    df: pd.DataFrame,
+    source_col: str,
+    negative_label_name: str,
+    threshold: float = 0.0,
+    label_col: str = "target_label",
+    score_col: str = "score",
+) -> pd.DataFrame:
+    """``compute_patient_metrics`` por cada valor distinto de ``source_col``."""
+    required = {source_col, label_col, score_col}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"faltan columnas: {sorted(missing)}")
+    rows = []
+    for source, group in df.groupby(source_col, sort=True):
+        metrics = compute_patient_metrics(
+            group[label_col].to_numpy(), group[score_col].to_numpy(), negative_label_name, threshold,
+        )
+        rows.append({source_col: source, **metrics})
+    return pd.DataFrame(rows)
+
+
+def classification_report_by_source_df(
+    df: pd.DataFrame,
+    source_col: str,
+    target_names: tuple[str, str],
+    threshold: float = 0.0,
+    label_col: str = "target_label",
+    score_col: str = "score",
+) -> pd.DataFrame:
+    frames = []
+    for source, group in df.groupby(source_col, sort=True):
+        report = classification_report_df(
+            group[label_col].to_numpy(), group[score_col].to_numpy(), target_names, threshold,
+        )
+        report.insert(0, source_col, source)
+        frames.append(report)
+    return pd.concat(frames, ignore_index=True)
+
+
+def confusion_matrix_by_source_df(
+    df: pd.DataFrame,
+    source_col: str,
+    target_names: tuple[str, str],
+    threshold: float = 0.0,
+    label_col: str = "target_label",
+    score_col: str = "score",
+) -> pd.DataFrame:
+    """Formato largo (una fila por fuente x clase real), a diferencia de
+    ``confusion_matrix_df``: asi se concatena directamente entre fuentes."""
+    frames = []
+    for source, group in df.groupby(source_col, sort=True):
+        matrix = confusion_matrix_df(
+            group[label_col].to_numpy(), group[score_col].to_numpy(), target_names, threshold,
+        )
+        matrix = matrix.reset_index().rename(columns={"index": "real"})
+        matrix.insert(0, source_col, source)
+        frames.append(matrix)
+    return pd.concat(frames, ignore_index=True)
+
+
+def bootstrap_by_source_df(
+    df: pd.DataFrame,
+    source_col: str,
+    ci_specs: dict,
+    n_resamples: int,
+    confidence: float,
+    random_state: int | None,
+    label_col: str = "target_label",
+    score_col: str = "score",
+) -> pd.DataFrame:
+    rows = []
+    for source, group in df.groupby(source_col, sort=True):
+        y_true = group[label_col].to_numpy()
+        y_score = group[score_col].to_numpy()
+        for metric_name, metric_fn in ci_specs.items():
+            result = bootstrap_confidence_interval(
+                y_true, y_score, metric_fn,
+                n_resamples=n_resamples, confidence=confidence, random_state=random_state,
+            )
+            rows.append({source_col: source, "metric": metric_name, **result})
+    return pd.DataFrame(rows)
+
+
+def by_source_report(
+    oof_patients: pd.DataFrame,
+    source_col: str,
+    negative_label_name: str,
+    threshold: float,
+    ci_specs: dict,
+    bootstrap_cfg: dict,
+) -> dict[str, pd.DataFrame] | None:
+    """Los cuatro artefactos por fuente, o ``None`` si no hay columna de fuente
+    o si solo hay una fuente presente (nada que comparar).
+    """
+    if source_col not in oof_patients.columns or oof_patients[source_col].nunique() < 2:
+        return None
+    target_names = (negative_label_name, "COPD")
+    return {
+        "metrics_by_source": compute_metrics_by_source(
+            oof_patients, source_col, negative_label_name, threshold,
+        ),
+        "classification_report_by_source": classification_report_by_source_df(
+            oof_patients, source_col, target_names, threshold,
+        ),
+        "confusion_matrix_by_source": confusion_matrix_by_source_df(
+            oof_patients, source_col, target_names, threshold,
+        ),
+        "bootstrap_by_source": bootstrap_by_source_df(
+            oof_patients, source_col, ci_specs,
+            n_resamples=int(bootstrap_cfg["n_resamples"]),
+            confidence=float(bootstrap_cfg["confidence"]),
+            random_state=int(bootstrap_cfg["random_state"]),
+        ),
+    }

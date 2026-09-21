@@ -37,7 +37,7 @@ from . import splits as sp
 from .models import svm_rbf as svm_model
 
 MODEL_CHOICES = ("svm_rbf", "cnn", "crnn")
-DATASET_CHOICES = ("ICBHI", "FRAIWAN_Extended", "all")
+DATASET_CHOICES = ("ICBHI", "FRAIWAN_Extended", "COMBINED", "all")
 EXPERIMENT_CHOICES = ("main", "denoising_ablation", "augmentation_ablation", "all")
 CONFIG_PATHS = {
     "svm_rbf": dmod.DEFAULT_CONFIG_PATH,
@@ -54,6 +54,7 @@ DEVICE_PATTERN = re.compile(r"^(auto|cpu|cuda|cuda:\d+)$")
 ABLATION_PAIRS = {
     "ICBHI": ("no_dn_reliable", "dn_reliable"),
     "FRAIWAN_Extended": ("main_no_dn", "dn"),
+    "COMBINED": ("no_dn_reliable", "dn_reliable"),
 }
 
 
@@ -72,7 +73,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Entrena y evalua modelos COPD vs Control (SVM-RBF, CNN o CRNN), dataset por dataset."
     )
     parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
-    parser.add_argument("--dataset", choices=DATASET_CHOICES, required=True)
+    parser.add_argument(
+        "--dataset", choices=DATASET_CHOICES, required=True,
+        help="COMBINED requiere un --config con [datasets.COMBINED] (ver configs/*_combined.toml).",
+    )
     parser.add_argument(
         "--experiment", choices=EXPERIMENT_CHOICES, required=True,
         help="augmentation_ablation solo existe para la CNN y la CRNN.",
@@ -157,7 +161,7 @@ def _smoke_test_config(cfg: dict) -> dict:
 
 RUN_FINGERPRINT_CONFIG_SECTIONS = (
     "acoustic", "logmel", "mfcc", "summary", "splits", "weights",
-    "svm", "selection", "bootstrap", "datasets", "experiments",
+    "svm", "selection", "bootstrap", "datasets", "experiments", "evaluation",
 )
 
 
@@ -351,6 +355,7 @@ def dry_run_check(data_root: Path, cfg: dict, specs: list[dmod.ConditionSpec]) -
                 fold_cache[key] = sp.build_patient_folds(
                     selected, n_splits=int(cfg["splits"]["n_splits"]),
                     random_state=int(cfg["splits"]["random_state"]),
+                    stratify_by_dataset=bool(cfg["splits"].get("stratify_by_dataset", False)),
                 )
             n_patients = len(fold_cache[key].patient_table)
             rows.append({
@@ -518,6 +523,8 @@ def summarize_condition(
     grid_tables = [fo["grid_search"] for fo in fold_outputs]
     baseline_metrics = pd.concat([fo["baseline_metrics"] for fo in fold_outputs], ignore_index=True)
 
+    oof_patients = ev.attach_source_dataset(oof_patients, condition_data.segments)
+
     oof_y_true = oof_patients["target_label"].to_numpy()
     oof_y_score = oof_patients["score"].to_numpy()
     oof_metrics = ev.compute_patient_metrics(oof_y_true, oof_y_score, negative_label_name, threshold)
@@ -539,6 +546,12 @@ def summarize_condition(
         )
         for name, fn in ci_specs.items()
     }
+
+    by_source = None
+    if bool(cfg.get("evaluation", {}).get("report_by_source", False)):
+        by_source = ev.by_source_report(
+            oof_patients, "source_dataset", negative_label_name, threshold, ci_specs, bootstrap_cfg,
+        )
 
     numeric_cols = ["accuracy", "balanced_accuracy", "recall_copd", f"recall_{neg_key}", "macro_f1", "auroc", "auprc_copd"]
     fold_mean = metrics_by_fold[numeric_cols].mean().to_dict()
@@ -583,6 +596,9 @@ def summarize_condition(
     (cdir / "metrics_summary.json").write_text(
         json.dumps(art._json_safe(summary_row), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    if by_source is not None:
+        for name, table in by_source.items():
+            table.to_csv(cdir / f"{name}.csv", index=False, lineterminator="\n")
 
     prefix = run_root / "figures" / f"{spec.dataset}__{spec.condition}"
     art.plot_confusion_matrix(oof_y_true, oof_y_score, target_names,
@@ -638,6 +654,7 @@ def summarize_condition(
         "hyperparameter_search": pd.concat(grid_tables, ignore_index=True),
         "classification_report": classification_report,
         "confusion_matrix": confusion_matrix,
+        "by_source": by_source,
     }
 
 
@@ -651,6 +668,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.experiment != "all" and args.experiment not in cfg["experiments"]:
         print(f"--experiment {args.experiment} no esta definido para --model {args.model}", file=sys.stderr)
+        return 2
+
+    if args.dataset != "all" and args.dataset not in dmod.dataset_names(cfg):
+        print(
+            f"--dataset {args.dataset} no esta definido en {args.config or CONFIG_PATHS[args.model]} "
+            f"(datasets disponibles: {dmod.dataset_names(cfg)})",
+            file=sys.stderr,
+        )
         return 2
 
     if args.model in ("cnn", "crnn"):
@@ -727,6 +752,7 @@ def main(argv: list[str] | None = None) -> int:
                 condition_data.segments,
                 n_splits=int(cfg["splits"]["n_splits"]),
                 random_state=int(cfg["splits"]["random_state"]),
+                stratify_by_dataset=bool(cfg["splits"].get("stratify_by_dataset", False)),
             )
             if pop_key in folds_by_population:
                 if not sp.folds_are_identical(folds_by_population[pop_key], new_folds):
@@ -791,6 +817,20 @@ def main(argv: list[str] | None = None) -> int:
         pd.concat(confusion_frames, ignore_index=True).to_csv(
             run_root / "confusion_matrix.csv", index=False, lineterminator="\n"
         )
+
+        by_source_keys = (
+            "metrics_by_source", "classification_report_by_source",
+            "confusion_matrix_by_source", "bootstrap_by_source",
+        )
+        for key in by_source_keys:
+            frames = [
+                _tag(r["summary"]["by_source"][key], r) for r in ok_results
+                if r["summary"].get("by_source")
+            ]
+            if frames:
+                pd.concat(frames, ignore_index=True).to_csv(
+                    run_root / f"{key}.csv", index=False, lineterminator="\n"
+                )
 
     if folds_by_population:
         fold_tables = []
