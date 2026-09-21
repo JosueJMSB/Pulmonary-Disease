@@ -1,0 +1,97 @@
+{
+  "verdict": "PASS",
+  "task": "COPD_vs_Control_Combined",
+  "output_name": "COMBINED",
+  "cohorts": [
+    {
+      "dataset": "ICBHI",
+      "diagnoses": [
+        "COPD",
+        "Healthy"
+      ],
+      "required_filter": null
+    },
+    {
+      "dataset": "FRAIWAN",
+      "diagnoses": [
+        "COPD",
+        "Normal"
+      ],
+      "required_filter": "Extended"
+    }
+  ],
+  "label_mapping": {
+    "COPD": 1,
+    "Healthy": 0,
+    "Normal": 0
+  },
+  "ordering": "ordenado por array_index original de forma estable (renombrado a source_array_index); task_array_index = 0..N-1",
+  "created_at_utc": "2026-09-21T07:10:48.431031+00:00",
+  "git": {
+    "commit": "97e88315a0ea2e2124fa54b5a9daa4f47d88d0af",
+    "dirty": true
+  },
+  "source_root": "C:\\Pulmonary-Disease\\preprocessing\\data\\final",
+  "source_shape": [
+    8747,
+    20000
+  ],
+  "output_shape": [
+    6536,
+    20000
+  ],
+  "dtype": "float32",
+  "counts_by_dataset_diagnosis": {
+    "ICBHI/COPD": {
+      "patients": 64,
+      "recordings": 793,
+      "segments": 6055
+    },
+    "ICBHI/Healthy": {
+      "patients": 26,
+      "recordings": 35,
+      "segments": 240
+    },
+    "FRAIWAN/COPD": {
+      "patients": 9,
+      "recordings": 9,
+      "segments": 51
+    },
+    "FRAIWAN/Normal": {
+      "patients": 34,
+      "recordings": 34,
+      "segments": 190
+    }
+  },
+  "counts_total": {
+    "patients": 133,
+    "recordings": 871,
+    "segments": 6536
+  },
+  "counts_harmonized": {
+    "COPD": {
+      "patients": 73,
+      "recordings": 802,
+      "segments": 6106
+    },
+    "Control": {
+      "patients": 60,
+      "recordings": 69,
+      "segments": 430
+    }
+  },
+  "source_hashes": {
+    "segments.csv": "347499af98c37d1b856b003b1a879b27ac42002041eb063b1bc314c85790cfad",
+    "segments_no_dn.npy": "44849bb5c952d245ac57f8c4f76ccb6a2fa2c28874ff29be08378ed69899bfcd",
+    "segments_dn.npy": "c1a0babff33981da4b7615d22c4ab0b3c57d46c9f38b00424a81e8ba4ffb3d5b"
+  },
+  "output_hashes": {
+    "segments_no_dn.npy": "a3e53625b72f4eeb1a8204ab21a82c633ecd5f0d170bcf87a4d3d8b27063218a",
+    "segments_dn.npy": "524d279871b9f282540354a233c7f36d3203090915eebe542f1806510631e1ef",
+    "segments.csv": "e82091d56ad8213d4ccfc46b014bfbce8e468ae8fcdfe7263c7b3bda8d4d411b"
+  },
+  "python": "3.14.5",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "numpy": "2.5.2",
+  "pandas": "3.0.5"
+}
