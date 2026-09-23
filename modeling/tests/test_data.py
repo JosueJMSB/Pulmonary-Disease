@@ -1,6 +1,9 @@
 """Los pesos por muestra dan igual contribucion total por clase y por
 paciente; ``select_rows_by_patients`` mantiene segments y X alineados."""
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -73,3 +76,61 @@ def test_select_rows_by_patients_rejects_mismatched_lengths():
     X = np.zeros((3, 2))
     with pytest.raises(ValueError):
         dmod.select_rows_by_patients(segments, X, ["A"])
+
+
+# ---------------------------------------------------------------------------
+# fold_id (protocolo fold-aware v2): fold_id=None reproduce las rutas
+# actuales byte a byte; fold_id=N añade fold_00..fold_04.
+# ---------------------------------------------------------------------------
+
+def test_dataset_root_without_fold_id_matches_current_layout(tmp_path):
+    assert dmod.dataset_root(tmp_path, "ICBHI") == tmp_path / "ICBHI"
+    assert dmod.dataset_root(tmp_path, "ICBHI", fold_id=None) == tmp_path / "ICBHI"
+
+
+def test_dataset_root_with_fold_id_appends_zero_padded_segment(tmp_path):
+    assert dmod.dataset_root(tmp_path, "ICBHI", fold_id=0) == tmp_path / "ICBHI" / "fold_00"
+    assert dmod.dataset_root(tmp_path, "ICBHI", fold_id=4) == tmp_path / "ICBHI" / "fold_04"
+
+
+def test_feature_and_logmel_cache_dir_fold_id_none_matches_current_layout(tmp_path):
+    assert dmod.feature_cache_dir(tmp_path, "ICBHI", "no_dn") == tmp_path / "ICBHI" / "no_dn"
+    assert dmod.logmel_cache_dir(tmp_path, "ICBHI", "no_dn") == tmp_path / "ICBHI" / "no_dn"
+
+
+def test_feature_and_logmel_cache_dir_with_fold_id(tmp_path):
+    assert dmod.feature_cache_dir(tmp_path, "ICBHI", "no_dn", fold_id=2) == tmp_path / "ICBHI" / "fold_02" / "no_dn"
+    assert dmod.logmel_cache_dir(tmp_path, "ICBHI", "no_dn", fold_id=2) == tmp_path / "ICBHI" / "fold_02" / "no_dn"
+
+
+def _write_toy_task_dataset(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([{
+        "task_array_index": 0, "source_array_index": 0, "segment_id": "S0", "audio_id": "A0",
+        "patient_uid": "P0", "diagnosis": "COPD", "target_label": 1, "target_name": "COPD",
+        "calibration_patient": False, "dn_reliable": True,
+    }]).to_csv(root / "segments.csv", index=False)
+    (root / "manifest.json").write_text(json.dumps({"verdict": "PASS"}) + "\n", encoding="utf-8")
+    np.save(root / "segments_no_dn.npy", np.zeros((1, 4), dtype=np.float32))
+
+
+def test_load_task_segments_and_manifest_read_from_fold_subdirectory(tmp_path):
+    data_root = tmp_path / "data"
+    _write_toy_task_dataset(data_root / "ICBHI" / "fold_03")
+
+    segments = dmod.load_task_segments(data_root, "ICBHI", fold_id=3)
+    assert segments.loc[0, "patient_uid"] == "P0"
+    manifest = dmod.load_task_manifest(data_root, "ICBHI", fold_id=3)
+    assert manifest["verdict"] == "PASS"
+    array = dmod.load_branch_array(data_root, "ICBHI", "no_dn", fold_id=3)
+    assert array.shape == (1, 4)
+
+
+def test_load_task_segments_without_fold_id_ignores_fold_subdirectories(tmp_path):
+    data_root = tmp_path / "data"
+    _write_toy_task_dataset(data_root / "ICBHI")
+    # Una carpeta fold_00 al lado no debe interferir con la ruta sin fold_id.
+    _write_toy_task_dataset(data_root / "ICBHI" / "fold_00")
+
+    segments = dmod.load_task_segments(data_root, "ICBHI")
+    assert len(segments) == 1

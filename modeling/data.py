@@ -131,8 +131,21 @@ REQUIRED_SEGMENT_COLUMNS = {
 }
 
 
-def load_task_segments(data_root: Path, dataset: str) -> pd.DataFrame:
-    path = Path(data_root) / dataset / "segments.csv"
+def dataset_root(data_root: Path, dataset: str, fold_id: int | None = None) -> Path:
+    """Directorio de un dataset o, en el protocolo fold-aware, de uno de sus
+    folds. ``fold_id=None`` reproduce la ruta actual byte a byte -cero riesgo
+    para ICBHI/FRAIWAN_Extended/COMBINED-. Con ``fold_id`` dado, añade
+    ``fold_00``..``fold_04`` (mismo formato que usa
+    ``preprocessing/fold_denoising.py``; no debe confundirse con el
+    ``fold_01``..``fold_05`` de ``artifacts.fold_dir``, que numera los folds
+    de una corrida de modelo, no los de esta preparacion de datos).
+    """
+    base = Path(data_root) / dataset
+    return base if fold_id is None else base / f"fold_{fold_id:02d}"
+
+
+def load_task_segments(data_root: Path, dataset: str, fold_id: int | None = None) -> pd.DataFrame:
+    path = dataset_root(data_root, dataset, fold_id) / "segments.csv"
     if not path.is_file():
         raise FileNotFoundError(
             f"no existe {path}. Ejecute primero modeling/prepare_task_data.py"
@@ -149,15 +162,15 @@ def load_task_segments(data_root: Path, dataset: str) -> pd.DataFrame:
     return df
 
 
-def load_task_manifest(data_root: Path, dataset: str) -> dict:
-    path = Path(data_root) / dataset / "manifest.json"
+def load_task_manifest(data_root: Path, dataset: str, fold_id: int | None = None) -> dict:
+    path = dataset_root(data_root, dataset, fold_id) / "manifest.json"
     if not path.is_file():
         raise FileNotFoundError(f"no existe {path}")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_branch_array(data_root: Path, dataset: str, branch: str) -> np.ndarray:
-    path = Path(data_root) / dataset / f"segments_{branch}.npy"
+def load_branch_array(data_root: Path, dataset: str, branch: str, fold_id: int | None = None) -> np.ndarray:
+    path = dataset_root(data_root, dataset, fold_id) / f"segments_{branch}.npy"
     if not path.is_file():
         raise FileNotFoundError(f"no existe {path}")
     return np.load(path, mmap_mode="r")
@@ -197,8 +210,8 @@ def _config_fingerprint(cfg: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def feature_cache_dir(cache_root: Path, dataset: str, branch: str) -> Path:
-    return Path(cache_root) / dataset / branch
+def feature_cache_dir(cache_root: Path, dataset: str, branch: str, fold_id: int | None = None) -> Path:
+    return dataset_root(cache_root, dataset, fold_id) / branch
 
 
 def _feature_cache_paths(cache_dir: Path) -> dict[str, Path]:
@@ -223,22 +236,26 @@ def extract_or_load_features(
     branch: str,
     cfg: dict,
     force: bool = False,
+    fold_id: int | None = None,
 ) -> tuple[np.ndarray, pd.DataFrame, list[str]]:
     """Caracteristicas (n, 188) de TODOS los segmentos de un dataset/rama.
 
     Reutiliza la cache si los hashes de ``segments.csv`` y del ``.npy``, y la
     huella de la configuracion acustica, no cambiaron desde que se escribio;
-    ``force=True`` la regenera sin comprobar nada.
+    ``force=True`` la regenera sin comprobar nada. ``fold_id`` (protocolo
+    fold-aware) hace que tanto la entrada como la cache se lean/escriban bajo
+    ``fold_00``..``fold_04``; ``None`` reproduce el comportamiento actual.
     """
-    segments = load_task_segments(data_root, dataset)
-    csv_path = Path(data_root) / dataset / "segments.csv"
-    npy_path = Path(data_root) / dataset / f"segments_{branch}.npy"
+    segments = load_task_segments(data_root, dataset, fold_id)
+    csv_path = dataset_root(data_root, dataset, fold_id) / "segments.csv"
+    npy_path = dataset_root(data_root, dataset, fold_id) / f"segments_{branch}.npy"
     if not npy_path.is_file():
         raise FileNotFoundError(f"no existe {npy_path}")
 
     manifest = {
         "dataset": dataset,
         "branch": branch,
+        "fold_id": fold_id,
         "segments_csv_sha256": sha256_file(csv_path),
         f"segments_{branch}_npy_sha256": sha256_file(npy_path),
         "config_fingerprint": _config_fingerprint(cfg),
@@ -250,7 +267,7 @@ def extract_or_load_features(
         "config_fingerprint", "n_features",
     }
 
-    cache_dir = feature_cache_dir(cache_root, dataset, branch)
+    cache_dir = feature_cache_dir(cache_root, dataset, branch, fold_id)
     paths = _feature_cache_paths(cache_dir)
 
     if not force and all(p.is_file() for p in paths.values()):
@@ -269,7 +286,7 @@ def extract_or_load_features(
             if valid:
                 return X, rows, list(feat.FEATURE_NAMES)
 
-    array = load_branch_array(data_root, dataset, branch)
+    array = load_branch_array(data_root, dataset, branch, fold_id)
     if array.shape[0] != len(segments):
         raise ValueError(
             f"{dataset}/{branch}: {array.shape[0]} filas en el .npy, "
@@ -327,11 +344,12 @@ def build_condition_data(
     spec: ConditionSpec,
     cfg: dict,
     force_features: bool = False,
+    fold_id: int | None = None,
 ) -> ConditionData:
     full_X, feature_rows, feature_names = extract_or_load_features(
-        data_root, cache_root, spec.dataset, spec.branch, cfg, force=force_features,
+        data_root, cache_root, spec.dataset, spec.branch, cfg, force=force_features, fold_id=fold_id,
     )
-    segments = load_task_segments(data_root, spec.dataset)
+    segments = load_task_segments(data_root, spec.dataset, fold_id)
     segments = segments.sort_values("task_array_index").reset_index(drop=True)
 
     if not segments["segment_id"].equals(feature_rows["segment_id"]):
@@ -450,8 +468,8 @@ def logmel_config_fingerprint(cfg: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def logmel_cache_dir(cache_root: Path, dataset: str, branch: str) -> Path:
-    return Path(cache_root) / dataset / branch
+def logmel_cache_dir(cache_root: Path, dataset: str, branch: str, fold_id: int | None = None) -> Path:
+    return dataset_root(cache_root, dataset, fold_id) / branch
 
 
 def logmel_cache_paths(cache_dir: Path) -> dict[str, Path]:
@@ -467,14 +485,17 @@ def logmel_shape(cfg: dict, n_segments: int) -> tuple[int, int, int, int]:
     return (int(n_segments), 1, int(cfg["logmel"]["n_mels"]), int(cfg["acoustic"]["expected_frames"]))
 
 
-def _logmel_expected_manifest(data_root: Path, dataset: str, branch: str, cfg: dict, n_segments: int) -> dict:
-    csv_path = Path(data_root) / dataset / "segments.csv"
-    npy_path = Path(data_root) / dataset / f"segments_{branch}.npy"
+def _logmel_expected_manifest(
+    data_root: Path, dataset: str, branch: str, cfg: dict, n_segments: int, fold_id: int | None = None,
+) -> dict:
+    csv_path = dataset_root(data_root, dataset, fold_id) / "segments.csv"
+    npy_path = dataset_root(data_root, dataset, fold_id) / f"segments_{branch}.npy"
     if not npy_path.is_file():
         raise FileNotFoundError(f"no existe {npy_path}")
     return {
         "dataset": dataset,
         "branch": branch,
+        "fold_id": fold_id,
         "segments_csv_sha256": sha256_file(csv_path),
         "segments_npy_sha256": sha256_file(npy_path),
         "config_fingerprint": logmel_config_fingerprint(cfg),
@@ -483,25 +504,27 @@ def _logmel_expected_manifest(data_root: Path, dataset: str, branch: str, cfg: d
     }
 
 
-def _ordered_segments(data_root: Path, dataset: str) -> pd.DataFrame:
-    segments = load_task_segments(data_root, dataset)
+def _ordered_segments(data_root: Path, dataset: str, fold_id: int | None = None) -> pd.DataFrame:
+    segments = load_task_segments(data_root, dataset, fold_id)
     ordered = segments.sort_values("task_array_index").reset_index(drop=True)
     if not np.array_equal(ordered["task_array_index"].to_numpy(), np.arange(len(ordered))):
         raise ValueError(f"{dataset}: task_array_index no es 0..n-1 consecutivo")
     return ordered
 
 
-def logmel_cache_status(data_root: Path, cache_root: Path, dataset: str, branch: str, cfg: dict) -> tuple[str, str]:
+def logmel_cache_status(
+    data_root: Path, cache_root: Path, dataset: str, branch: str, cfg: dict, fold_id: int | None = None,
+) -> tuple[str, str]:
     """``("valida" | "ausente" | "desactualizada", detalle)`` sin extraer nada.
 
     Una cache ausente o desactualizada no es un error: la ejecucion la
     regenera. --dry-run solo informa en que estado esta.
     """
-    ordered = _ordered_segments(data_root, dataset)
-    paths = logmel_cache_paths(logmel_cache_dir(cache_root, dataset, branch))
+    ordered = _ordered_segments(data_root, dataset, fold_id)
+    paths = logmel_cache_paths(logmel_cache_dir(cache_root, dataset, branch, fold_id))
     if not all(p.is_file() for p in paths.values()):
         return "ausente", "se generara al ejecutar"
-    expected = _logmel_expected_manifest(data_root, dataset, branch, cfg, len(ordered))
+    expected = _logmel_expected_manifest(data_root, dataset, branch, cfg, len(ordered), fold_id)
     stored = json.loads(paths["manifest"].read_text(encoding="utf-8"))
     changed = [k for k in LOGMEL_COMPARE_KEYS if stored.get(k) != expected[k]]
     if changed:
@@ -519,6 +542,7 @@ def extract_or_load_logmel(
     cfg: dict,
     force: bool = False,
     progress=None,
+    fold_id: int | None = None,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Log-Mel ``(N, 1, n_mels, n_frames)`` de TODOS los segmentos de un
     dataset/rama, cacheado en disco.
@@ -528,13 +552,15 @@ def extract_or_load_logmel(
     ``logmel.npy``. ``progress(hechos, total)`` se llama cada 500 segmentos.
     La escritura va a ``logmel.npy.part`` via ``open_memmap`` (que, a
     diferencia de ``np.save``, no altera el nombre) y se publica con
-    ``os.replace`` solo al terminar.
+    ``os.replace`` solo al terminar. ``fold_id`` (protocolo fold-aware) hace
+    que tanto la entrada como la cache se lean/escriban bajo
+    ``fold_00``..``fold_04``; ``None`` reproduce el comportamiento actual.
     """
     import gc
 
-    ordered = _ordered_segments(data_root, dataset)
-    expected = _logmel_expected_manifest(data_root, dataset, branch, cfg, len(ordered))
-    cache_dir = logmel_cache_dir(cache_root, dataset, branch)
+    ordered = _ordered_segments(data_root, dataset, fold_id)
+    expected = _logmel_expected_manifest(data_root, dataset, branch, cfg, len(ordered), fold_id)
+    cache_dir = logmel_cache_dir(cache_root, dataset, branch, fold_id)
     paths = logmel_cache_paths(cache_dir)
 
     if not force and all(p.is_file() for p in paths.values()):
@@ -547,7 +573,7 @@ def extract_or_load_logmel(
                     and rows["segment_id"].equals(ordered["segment_id"])):
                 return logmel, rows
 
-    array = load_branch_array(data_root, dataset, branch)
+    array = load_branch_array(data_root, dataset, branch, fold_id)
     segment_length = int(cfg["acoustic"]["segment_length"])
     if array.shape != (len(ordered), segment_length):
         raise ValueError(
@@ -607,8 +633,9 @@ class ConditionLogmel:
 
 def build_condition_logmel(
     data_root: Path, spec: ConditionSpec, logmel: np.ndarray, rows: pd.DataFrame,
+    fold_id: int | None = None,
 ) -> ConditionLogmel:
-    ordered = _ordered_segments(data_root, spec.dataset)
+    ordered = _ordered_segments(data_root, spec.dataset, fold_id)
     if not ordered["segment_id"].equals(rows["segment_id"]):
         raise RuntimeError(
             f"{spec.dataset}/{spec.branch}: segments.csv y la cache Log-Mel no estan alineados fila a fila"

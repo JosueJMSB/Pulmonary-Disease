@@ -1,0 +1,118 @@
+# Configuracion versionada del experimento SVM-RBF sobre COMBINED, protocolo
+# fold-aware (v2): el denoising y TARGET_RMS se recalibran por fold, usando
+# solo los pacientes ICBHI de train de ese fold para el denoising y todos los
+# pacientes de train (ICBHI+Fraiwan) para TARGET_RMS (ver
+# preprocessing/fold_denoising.py y modeling/build_master_folds.py).
+# COMBINED hereda el fold_group de ICBHI y de Fraiwan tal cual -no sortea su
+# propia particion-, asi que sus 5 folds son consistentes con los de
+# svm_rbf_v2.toml/cnn_v2.toml/crnn_v2.toml paciente a paciente.
+#
+# Copia exacta de svm_rbf_v2.toml en representacion acustica, hiperparametros
+# y semillas. Cambia [datasets]/[experiments] a un unico dataset COMBINED
+# (etiquetas ya armonizadas a COPD/Control) y activa report_by_source.
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[mfcc]
+n_mfcc = 13
+delta_width = 9
+delta_order = 1
+delta2_order = 2
+
+[summary]
+statistics = ["mean", "std", "p10", "p90"]
+percentiles = [10, 90]
+
+[weights]
+normalize_to_mean_one = true
+
+[svm]
+kernel = "rbf"
+shrinking = true
+tol = 1e-3
+cache_size_mb = 1024
+class_weight = "none"
+c_grid = [0.1, 1, 10, 100]
+gamma_grid = ["scale", 0.001, 0.01, 0.1]
+decision_threshold = 0.0
+
+[selection]
+criteria = [
+    "balanced_accuracy",
+    "macro_f1",
+    "min_class_recall",
+    "neg_C",
+    "gamma_order",
+]
+
+[bootstrap]
+n_resamples = 2000
+confidence = 0.95
+random_state = 20260914
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+default_data_root = "preprocessing/data/fold_calibrated"
+default_runs_root = "modeling/runs/svm"
+default_cache_root = "modeling/cache/features"
+
+[folds]
+patient_folds_csv = "modeling/data/patient_folds.csv"
+patient_folds_manifest = "modeling/data/patient_folds_manifest.json"
+
+[final_model]
+enabled = false
+
+[evaluation]
+report_by_source = true
+
+[datasets.COMBINED]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Control"
+negative_label_name = "Control"
+
+[experiments.main]
+description = "Condicion principal: sin denoising."
+
+[experiments.main.COMBINED]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Comparacion emparejada no_dn vs dn, mismo fold, denoising recalibrado con train de ese fold."
+
+[[experiments.denoising_ablation.COMBINED]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.COMBINED]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false

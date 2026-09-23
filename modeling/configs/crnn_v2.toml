@@ -1,0 +1,217 @@
+# Configuracion versionada de la CRNN sobre el protocolo fold-aware (v2).
+#
+# Todas las secciones del protocolo son copia exacta de configs/cnn_v2.toml:
+# mismo Log-Mel (y por tanto la misma cache), mismos folds (via
+# modeling/data/patient_folds.csv), pesos, normalizacion, busqueda,
+# seleccion, augmentation, condiciones y bootstrap. Solo cambian [model] y
+# [crnn]. La ejecucion se niega a arrancar si alguna seccion compartida
+# difiere de cnn_v2.toml (cnn_experiment.config_consistency_checks).
+#
+# No hay rutas personales: --data-root / --runs-root / --cache-root, o las
+# variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT.
+
+[model]
+architecture = "crnn"
+reference_cnn_config = "cnn_v2.toml"
+
+[crnn]
+in_channels = 1
+channels = [32, 64, 128, 128]
+pool_sizes = [[2, 2], [2, 2], [2, 1], [2, 1]]
+projection_dim = 128
+gru_hidden = 128
+gru_layers = 2
+gru_dropout = 0.2
+attention_dim = 64
+head_hidden = 128
+expected_parameters = 1192482
+
+# ---------------------------------------------------------------------------
+# A partir de aqui: copia exacta de cnn_v2.toml.
+# ---------------------------------------------------------------------------
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[weights]
+normalize_to_mean_one = true
+
+[normalization]
+axis = "mel_band"
+weighted = true
+std_floor = 1e-6
+
+[training]
+optimizer = "adamw"
+weight_decay = 1e-4
+batch_size = 32
+eval_batch_size = 256
+max_epochs = 150
+min_epochs = 20
+patience = 15
+grad_clip_norm = 1.0
+scheduler = "cosine"
+t_max = 150
+eta_min = 1e-6
+amp = true
+
+[[search.configurations]]
+lr = 1e-3
+dropout = 0.3
+
+[[search.configurations]]
+lr = 3e-4
+dropout = 0.3
+
+[[search.configurations]]
+lr = 1e-3
+dropout = 0.5
+
+[[search.configurations]]
+lr = 3e-4
+dropout = 0.5
+
+[selection]
+criteria = [
+    "balanced_accuracy",
+    "macro_f1",
+    "min_class_recall",
+    "neg_val_loss",
+    "config_order",
+]
+
+[evaluation]
+decision_threshold = 0.5
+
+[augmentation]
+time_mask_max_frames = 20
+time_mask_probability = 0.5
+freq_mask_max_bands = 6
+freq_mask_probability = 0.5
+fill_value = 0.0
+
+[seeds]
+base = 20260914
+
+[determinism]
+cudnn_deterministic = true
+deterministic_algorithms = true
+warn_only = true
+
+[bootstrap]
+n_resamples = 2000
+confidence = 0.95
+random_state = 20260914
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+default_data_root = "preprocessing/data/fold_calibrated"
+default_runs_root = "modeling/runs"
+default_cache_root = "modeling/cache/logmel"
+
+[folds]
+patient_folds_csv = "modeling/data/patient_folds.csv"
+patient_folds_manifest = "modeling/data/patient_folds_manifest.json"
+
+[final_model]
+enabled = false
+
+[datasets.ICBHI]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Healthy"
+negative_label_name = "Healthy"
+
+[datasets.FRAIWAN_Extended]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Normal"
+negative_label_name = "Normal"
+
+[experiments.main]
+description = "Condicion principal: sin denoising."
+
+[experiments.main.ICBHI]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.main.FRAIWAN_Extended]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Comparacion emparejada no_dn vs dn, mismo fold, denoising recalibrado con train de ese fold."
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[experiments.augmentation_ablation]
+description = "Comparacion emparejada no_dn vs no_dn_aug, mismos pacientes y folds."
+
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "no_dn"
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
+condition = "no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "no_dn"

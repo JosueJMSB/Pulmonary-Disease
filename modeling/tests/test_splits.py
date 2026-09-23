@@ -201,3 +201,178 @@ def test_stratify_by_dataset_false_keeps_previous_behavior_with_dataset_column()
         _, val, test = folds.get_split(fold_id)
         assert {label_by_patient[p] for p in val} == {0, 1}
         assert {label_by_patient[p] for p in test} == {0, 1}
+
+
+# ---------------------------------------------------------------------------
+# respect_calibration_patient=False (protocolo fold-aware v2): calibration_patient
+# deja de reservar un grupo especial; todos los pacientes rotan por test.
+# ---------------------------------------------------------------------------
+
+def test_respect_calibration_patient_false_has_no_group_minus_one():
+    segments = _make_segments(n_calib_pos=2, n_calib_neg=2)
+    folds = sp.build_patient_folds(segments, n_splits=5, respect_calibration_patient=False)
+    assert folds.respect_calibration_patient is False
+    assert (folds.patient_table["fold_group"] == sp.CALIBRATION_GROUP).sum() == 0
+
+
+def test_respect_calibration_patient_false_rotates_former_calibration_patients_through_test():
+    segments = _make_segments(n_pos=20, n_neg=20, n_calib_pos=2, n_calib_neg=2)
+    folds = sp.build_patient_folds(segments, n_splits=5, respect_calibration_patient=False)
+    formerly_calibration = set(
+        segments.loc[segments["calibration_patient"], "patient_uid"].unique()
+    )
+    ever_in_test = set()
+    for fold_id in range(folds.n_splits):
+        _, _, test = folds.get_split(fold_id)
+        ever_in_test.update(test)
+    assert formerly_calibration <= ever_in_test
+
+
+def test_respect_calibration_patient_true_still_keeps_calibration_out_of_test():
+    # Comportamiento anterior sin cambios: el default sigue reservando -1.
+    segments = _make_segments(n_calib_pos=2, n_calib_neg=2)
+    folds = sp.build_patient_folds(segments, n_splits=5)
+    assert folds.respect_calibration_patient is True
+    calib_ids = set(segments.loc[segments["calibration_patient"], "patient_uid"].unique())
+    for fold_id in range(folds.n_splits):
+        _, _, test = folds.get_split(fold_id)
+        assert not (calib_ids & set(test))
+
+
+def test_verify_folds_rejects_stray_calibration_group_when_not_respected():
+    segments = _make_segments(n_calib_pos=2, n_calib_neg=2)
+    folds = sp.build_patient_folds(segments, n_splits=5, respect_calibration_patient=False)
+    tampered_table = folds.patient_table.copy()
+    tampered_table.loc[tampered_table.index[0], "fold_group"] = sp.CALIBRATION_GROUP
+    tampered = sp.PatientFolds(
+        patient_table=tampered_table, fold_table=folds.fold_table, n_splits=folds.n_splits,
+        respect_calibration_patient=False,
+    )
+    with pytest.raises(RuntimeError, match="grupo de calibracion"):
+        sp.verify_folds(tampered)
+
+
+# ---------------------------------------------------------------------------
+# combine_patient_folds: COMBINED hereda el fold_group de ICBHI y Fraiwan,
+# no sortea el suyo propio.
+# ---------------------------------------------------------------------------
+
+def _make_single_source_segments(source: str, n_pos: int, n_neg: int, segments_per_patient: int = 2) -> pd.DataFrame:
+    rows = []
+    for label, n in ((1, n_pos), (0, n_neg)):
+        for i in range(n):
+            patient_uid = f"{source}_{label}_{i:03d}"
+            for seg_idx in range(segments_per_patient):
+                rows.append({
+                    "patient_uid": patient_uid,
+                    "audio_id": f"{patient_uid}_rec0",
+                    "segment_id": f"{patient_uid}_rec0_{seg_idx:02d}",
+                    "target_label": label,
+                    "calibration_patient": False,
+                    "dataset": source,
+                })
+    return pd.DataFrame(rows)
+
+
+def test_combine_patient_folds_copies_fold_group_from_each_source():
+    icbhi = sp.build_patient_folds(
+        _make_single_source_segments("ICBHI", 20, 15), n_splits=5, respect_calibration_patient=False,
+    )
+    fraiwan = sp.build_patient_folds(
+        _make_single_source_segments("FRAIWAN", 6, 12), n_splits=5, respect_calibration_patient=False,
+    )
+    combined = sp.combine_patient_folds({"ICBHI": icbhi, "FRAIWAN_Extended": fraiwan}, n_splits=5)
+
+    assert combined.stratify_by_dataset is True
+    assert combined.respect_calibration_patient is False
+    assert len(combined.patient_table) == len(icbhi.patient_table) + len(fraiwan.patient_table)
+
+    icbhi_fold_group = dict(zip(icbhi.patient_table["patient_uid"], icbhi.patient_table["fold_group"]))
+    fraiwan_fold_group = dict(zip(fraiwan.patient_table["patient_uid"], fraiwan.patient_table["fold_group"]))
+    for _, row in combined.patient_table.iterrows():
+        expected = icbhi_fold_group.get(row["patient_uid"], fraiwan_fold_group.get(row["patient_uid"]))
+        assert row["fold_group"] == expected
+
+
+def test_combine_patient_folds_rejects_shared_patient_uid():
+    icbhi = sp.build_patient_folds(
+        _make_single_source_segments("ICBHI", 20, 15), n_splits=5, respect_calibration_patient=False,
+    )
+    fraiwan_segments = _make_single_source_segments("FRAIWAN", 6, 12)
+    # Fuerza a un paciente de "fraiwan" a compartir patient_uid con uno de ICBHI.
+    shared_uid = icbhi.patient_table["patient_uid"].iloc[0]
+    fraiwan_segments.loc[fraiwan_segments.index[0], "patient_uid"] = shared_uid
+    fraiwan = sp.build_patient_folds(fraiwan_segments, n_splits=5, respect_calibration_patient=False)
+
+    with pytest.raises(ValueError, match="compartidos entre fuentes"):
+        sp.combine_patient_folds({"ICBHI": icbhi, "FRAIWAN_Extended": fraiwan}, n_splits=5)
+
+
+# ---------------------------------------------------------------------------
+# patient_folds.csv + manifiesto: escritura, lectura y deteccion de desajuste.
+# ---------------------------------------------------------------------------
+
+def test_write_and_load_patient_folds_roundtrip(tmp_path):
+    icbhi = sp.build_patient_folds(
+        _make_single_source_segments("ICBHI", 20, 15), n_splits=5, respect_calibration_patient=False,
+    )
+    fraiwan = sp.build_patient_folds(
+        _make_single_source_segments("FRAIWAN", 6, 12), n_splits=5, respect_calibration_patient=False,
+    )
+    combined = sp.combine_patient_folds({"ICBHI": icbhi, "FRAIWAN_Extended": fraiwan}, n_splits=5)
+
+    frame = pd.concat([
+        sp.patient_folds_to_frame(icbhi, "ICBHI"),
+        sp.patient_folds_to_frame(fraiwan, "FRAIWAN_Extended"),
+        sp.patient_folds_to_frame(combined, "COMBINED"),
+    ], ignore_index=True)
+
+    csv_path = tmp_path / "patient_folds.csv"
+    manifest_path = tmp_path / "patient_folds_manifest.json"
+    sp.write_patient_folds_csv(frame, csv_path, manifest_path, {"counts": {
+        "ICBHI": {"n_patients": len(icbhi.patient_table)},
+        "FRAIWAN_Extended": {"n_patients": len(fraiwan.patient_table)},
+        "COMBINED": {"n_patients": len(combined.patient_table)},
+    }})
+
+    loaded_icbhi = sp.load_patient_folds(csv_path, manifest_path, "ICBHI")
+    assert loaded_icbhi.respect_calibration_patient is False
+    assert len(loaded_icbhi.patient_table) == len(icbhi.patient_table)
+    assert loaded_icbhi.fold_table.sort_values(["fold", "patient_uid"]).reset_index(drop=True).equals(
+        icbhi.fold_table.sort_values(["fold", "patient_uid"]).reset_index(drop=True)
+    )
+
+    loaded_combined = sp.load_patient_folds(csv_path, manifest_path, "COMBINED")
+    assert loaded_combined.stratify_by_dataset is True
+
+
+def test_load_patient_folds_rejects_csv_manifest_mismatch(tmp_path):
+    icbhi = sp.build_patient_folds(
+        _make_single_source_segments("ICBHI", 20, 15), n_splits=5, respect_calibration_patient=False,
+    )
+    frame = sp.patient_folds_to_frame(icbhi, "ICBHI")
+    csv_path = tmp_path / "patient_folds.csv"
+    manifest_path = tmp_path / "patient_folds_manifest.json"
+    sp.write_patient_folds_csv(frame, csv_path, manifest_path, {})
+
+    # El csv cambia despues de escribir el manifiesto: el hash ya no coincide.
+    with open(csv_path, "a", encoding="utf-8") as fh:
+        fh.write("\n")
+
+    with pytest.raises(ValueError, match="sha256"):
+        sp.load_patient_folds(csv_path, manifest_path, "ICBHI")
+
+
+def test_load_patient_folds_rejects_patient_count_mismatch(tmp_path):
+    icbhi = sp.build_patient_folds(
+        _make_single_source_segments("ICBHI", 20, 15), n_splits=5, respect_calibration_patient=False,
+    )
+    frame = sp.patient_folds_to_frame(icbhi, "ICBHI")
+    csv_path = tmp_path / "patient_folds.csv"
+    manifest_path = tmp_path / "patient_folds_manifest.json"
+    sp.write_patient_folds_csv(frame, csv_path, manifest_path, {
+        "counts": {"ICBHI": {"n_patients": len(icbhi.patient_table) + 1}},
+    })
+
+    with pytest.raises(ValueError, match="pacientes"):
+        sp.load_patient_folds(csv_path, manifest_path, "ICBHI")

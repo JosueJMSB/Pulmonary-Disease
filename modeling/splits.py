@@ -18,7 +18,12 @@ siempre en entrenamiento, en todos los folds y en todas las condiciones.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -84,6 +89,7 @@ def assign_fold_groups(
     n_splits: int = 5,
     random_state: int = 20260914,
     stratify_by_dataset: bool = False,
+    respect_calibration_patient: bool = True,
 ) -> pd.DataFrame:
     """Anade ``fold_group``: -1 para calibracion, 0..n_splits-1 en el resto.
 
@@ -93,11 +99,22 @@ def assign_fold_groups(
     ``source_dataset`` + ``target_label`` (requiere que ``patient_table``
     tenga ``source_dataset``, ver ``build_patient_table``), de modo que cada
     grupo conserve tambien la proporcion de fuentes del conjunto evaluable.
+
+    ``respect_calibration_patient=False`` (protocolo fold-aware: el denoising
+    ya no se calibra una sola vez de forma global, sino por fold, as que no
+    hace falta mantener a esos pacientes siempre en train) hace que TODOS los
+    pacientes entren al ``StratifiedKFold`` -incluidos los historicamente
+    marcados como ``calibration_patient``-, sin reservar ningun grupo -1. La
+    columna ``calibration_patient`` se conserva intacta en la tabla, solo como
+    trazabilidad; deja de leerse para decidir quien participa.
     """
     table = patient_table.copy()
     table["fold_group"] = CALIBRATION_GROUP
 
-    evaluable = table.loc[~table["calibration_patient"]].sort_values("patient_uid")
+    if respect_calibration_patient:
+        evaluable = table.loc[~table["calibration_patient"]].sort_values("patient_uid")
+    else:
+        evaluable = table.sort_values("patient_uid")
     if evaluable.empty:
         raise ValueError("no hay pacientes evaluables (todos son de calibracion)")
 
@@ -170,6 +187,7 @@ class PatientFolds:
     fold_table: pd.DataFrame
     n_splits: int
     stratify_by_dataset: bool = False
+    respect_calibration_patient: bool = True
 
     def get_split(self, fold_id: int) -> tuple[list[str], list[str], list[str]]:
         """``(train_patients, validation_patients, test_patients)`` del fold."""
@@ -185,16 +203,20 @@ def build_patient_folds(
     n_splits: int = 5,
     random_state: int = 20260914,
     stratify_by_dataset: bool = False,
+    respect_calibration_patient: bool = True,
 ) -> PatientFolds:
     """Construye y verifica la particion completa a partir de ``segments``."""
     patient_table = build_patient_table(segments)
     patient_table = assign_fold_groups(
-        patient_table, n_splits=n_splits, random_state=random_state, stratify_by_dataset=stratify_by_dataset,
+        patient_table, n_splits=n_splits, random_state=random_state,
+        stratify_by_dataset=stratify_by_dataset,
+        respect_calibration_patient=respect_calibration_patient,
     )
     fold_table = build_fold_table(patient_table, n_splits=n_splits)
     folds = PatientFolds(
         patient_table=patient_table, fold_table=fold_table, n_splits=n_splits,
         stratify_by_dataset=stratify_by_dataset,
+        respect_calibration_patient=respect_calibration_patient,
     )
     verify_folds(folds)
     return folds
@@ -208,13 +230,30 @@ def verify_folds(folds: PatientFolds) -> None:
     de cada fold contengan los mismos estratos fuente+clase presentes en la
     poblacion evaluable (los "cuatro estratos" del plan combinado). Sin eso,
     el comportamiento es identico al anterior: solo exige ambas clases.
+
+    Con ``respect_calibration_patient=False`` (protocolo fold-aware),
+    ``calibration_ids`` es explicitamente el conjunto vacio y ``evaluable_ids``
+    son TODOS los pacientes de ``patient_table``, sin leer la columna
+    ``calibration_patient`` para nada (queda solo como trazabilidad historica).
+    Ademas se exige que ningun paciente haya quedado en el grupo especial -1.
     """
     patient_table = folds.patient_table
     label_by_patient = dict(zip(patient_table["patient_uid"], patient_table["target_label"]))
-    calibration_ids = set(
-        patient_table.loc[patient_table["calibration_patient"], "patient_uid"]
-    )
-    evaluable_ids = set(patient_table["patient_uid"]) - calibration_ids
+
+    if folds.respect_calibration_patient:
+        calibration_ids = set(
+            patient_table.loc[patient_table["calibration_patient"], "patient_uid"]
+        )
+        evaluable_ids = set(patient_table["patient_uid"]) - calibration_ids
+    else:
+        calibration_ids = set()
+        evaluable_ids = set(patient_table["patient_uid"])
+        stray = int((patient_table["fold_group"] == CALIBRATION_GROUP).sum())
+        if stray:
+            raise RuntimeError(
+                f"respect_calibration_patient=False pero {stray} paciente(s) quedaron "
+                "en el grupo de calibracion (fold_group=-1)"
+            )
 
     check_strata = folds.stratify_by_dataset and "source_dataset" in patient_table.columns
     if check_strata:
@@ -282,3 +321,150 @@ def folds_are_identical(a: PatientFolds, b: PatientFolds) -> bool:
 def filter_segments_by_patients(segments: pd.DataFrame, patient_ids: list[str]) -> pd.DataFrame:
     """Subconjunto de segmentos cuyos pacientes estan en ``patient_ids``."""
     return segments.loc[segments["patient_uid"].isin(set(patient_ids))].reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# patient_folds.csv: asignacion maestra persistida (protocolo fold-aware).
+#
+# Se calcula una sola vez (build_master_folds.py) y se reutiliza tal cual en
+# preprocessing/fold_denoising.py y en las corridas de SVM/CNN/CRNN: ningun
+# consumidor vuelve a correr StratifiedKFold, todos leen el mismo csv.
+# ---------------------------------------------------------------------------
+
+def sha256_file(path: Path, chunk_bytes: int = 8 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while True:
+            chunk = fh.read(chunk_bytes)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+PATIENT_FOLDS_COLUMNS = (
+    "dataset_scope", "patient_uid", "target_label", "source_dataset",
+    "calibration_patient", "fold_group",
+)
+
+
+def patient_folds_to_frame(folds: PatientFolds, dataset_scope: str) -> pd.DataFrame:
+    """Una fila por paciente, en el formato de ``patient_folds.csv``."""
+    table = folds.patient_table
+    source_dataset = table["source_dataset"] if "source_dataset" in table.columns else pd.NA
+    return pd.DataFrame({
+        "dataset_scope": dataset_scope,
+        "patient_uid": table["patient_uid"],
+        "target_label": table["target_label"],
+        "source_dataset": source_dataset,
+        "calibration_patient": table["calibration_patient"],
+        "fold_group": table["fold_group"],
+    })
+
+
+def combine_patient_folds(parts: dict[str, PatientFolds], n_splits: int = 5) -> PatientFolds:
+    """Une varias particiones de una sola fuente (p. ej. ICBHI y Fraiwan, cada
+    una ya construida con ``respect_calibration_patient=False``) copiando el
+    ``fold_group`` que cada paciente recibio en su particion de origen -no
+    vuelve a correr ``StratifiedKFold``-. Pensado para construir COMBINED
+    reutilizando los folds de ICBHI y de Fraiwan tal cual, no con un sorteo
+    conjunto nuevo.
+    """
+    tables = []
+    for source_name, folds in parts.items():
+        if "source_dataset" not in folds.patient_table.columns:
+            raise ValueError(f"{source_name}: patient_table no tiene source_dataset")
+        tables.append(folds.patient_table)
+
+    combined_table = pd.concat(tables, ignore_index=True)
+    duplicated = combined_table["patient_uid"].duplicated()
+    if duplicated.any():
+        raise ValueError(
+            f"patient_uid compartidos entre fuentes: "
+            f"{sorted(combined_table.loc[duplicated, 'patient_uid'])}"
+        )
+
+    fold_table = build_fold_table(combined_table, n_splits=n_splits)
+    combined_folds = PatientFolds(
+        patient_table=combined_table, fold_table=fold_table, n_splits=n_splits,
+        stratify_by_dataset=True, respect_calibration_patient=False,
+    )
+    verify_folds(combined_folds)
+    return combined_folds
+
+
+def write_patient_folds_csv(
+    frame: pd.DataFrame, csv_path: Path, manifest_path: Path, manifest_extra: dict,
+) -> dict:
+    """Escribe ``patient_folds.csv`` (ya concatenado entre dataset_scope) y su
+    manifiesto (hash del csv + lo que el llamador quiera registrar: hashes de
+    los segments.csv fuente, semillas, conteos, git). Devuelve el manifiesto."""
+    csv_path = Path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(csv_path, index=False, lineterminator="\n")
+
+    manifest = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "patient_folds_csv_sha256": sha256_file(csv_path),
+        "python": sys.version.split()[0],
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        **manifest_extra,
+    }
+    manifest_path = Path(manifest_path)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
+def load_patient_folds(csv_path: Path, manifest_path: Path, dataset_scope: str) -> PatientFolds:
+    """Lee ``patient_folds.csv`` para un ``dataset_scope`` y verifica que
+    coincide exactamente con lo que registro su manifiesto (hash del csv y
+    numero de pacientes) antes de reconstruir la particion. Ningun consumidor
+    -``preprocessing/fold_denoising.py`` ni las corridas de modelo- puede usar
+    una version desincronizada sin que se detecte.
+    """
+    csv_path, manifest_path = Path(csv_path), Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    actual_hash = sha256_file(csv_path)
+    expected_hash = manifest.get("patient_folds_csv_sha256")
+    if actual_hash != expected_hash:
+        raise ValueError(
+            f"{csv_path}: sha256 {actual_hash[:12]}... no coincide con el manifiesto "
+            f"{manifest_path} ({str(expected_hash)[:12]}...); regenere con build_master_folds"
+        )
+
+    full = pd.read_csv(csv_path, dtype={"patient_uid": str})
+    missing = set(PATIENT_FOLDS_COLUMNS) - set(full.columns)
+    if missing:
+        raise ValueError(f"{csv_path}: faltan columnas {sorted(missing)}")
+    full["calibration_patient"] = full["calibration_patient"].astype(bool)
+
+    table = full.loc[full["dataset_scope"] == dataset_scope].drop(columns="dataset_scope").reset_index(drop=True)
+    if table.empty:
+        raise ValueError(f"{csv_path}: no hay filas para dataset_scope={dataset_scope!r}")
+
+    expected_counts = manifest.get("counts", {}).get(dataset_scope, {})
+    expected_n_patients = expected_counts.get("n_patients")
+    if expected_n_patients is not None and int(expected_n_patients) != len(table):
+        raise ValueError(
+            f"{dataset_scope}: {len(table)} pacientes en el csv, "
+            f"{expected_n_patients} en el manifiesto"
+        )
+
+    evaluable = table.loc[table["fold_group"] != CALIBRATION_GROUP]
+    if evaluable.empty:
+        raise ValueError(f"{dataset_scope}: ningun paciente con fold_group valido")
+    n_splits = int(evaluable["fold_group"].max()) + 1
+    stratify_by_dataset = "source_dataset" in table.columns and table["source_dataset"].nunique() > 1
+
+    fold_table = build_fold_table(table, n_splits=n_splits)
+    folds = PatientFolds(
+        patient_table=table, fold_table=fold_table, n_splits=n_splits,
+        stratify_by_dataset=stratify_by_dataset, respect_calibration_patient=False,
+    )
+    verify_folds(folds)
+    return folds
