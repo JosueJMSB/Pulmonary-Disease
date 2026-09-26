@@ -410,3 +410,102 @@ def by_source_report(
             random_state=int(bootstrap_cfg["random_state"]),
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Analisis descriptivo por dispositivo (protocolo holdout-v3).
+#
+# Agrega segmento -> grabacion -> paciente-dispositivo: dentro de cada
+# paciente, las grabaciones hechas con el mismo dispositivo se promedian, de
+# modo que un paciente con dos dispositivos cuenta una vez en cada uno. Estas
+# metricas son solo descriptivas: nunca participan en la seleccion de
+# hiperparametros. Un dispositivo con una sola clase NO interrumpe la
+# ejecucion: se informan conteos y los recalls disponibles, y el resto
+# (balanced accuracy, macro F1, AUROC, AUPRC), que no estan definidos con una
+# sola clase, quedan en NaN.
+# ---------------------------------------------------------------------------
+
+def aggregate_patient_device(
+    segment_scores: pd.DataFrame, score_col: str = "score", device_col: str = "device",
+) -> pd.DataFrame:
+    """Un puntaje por ``(patient_uid, device)``: media de las grabaciones de
+    ese paciente hechas con ese dispositivo (cada grabacion, a su vez, es la
+    media de sus segmentos)."""
+    required = {"audio_id", "patient_uid", "target_label", score_col, device_col}
+    missing = required - set(segment_scores.columns)
+    if missing:
+        raise ValueError(f"faltan columnas: {sorted(missing)}")
+
+    recording = aggregate_segment_to_recording(segment_scores, score_col=score_col)
+    device_by_audio = segment_scores.drop_duplicates("audio_id").set_index("audio_id")[device_col]
+    recording[device_col] = recording["audio_id"].map(device_by_audio)
+    grouped = recording.groupby(["patient_uid", device_col], as_index=False).agg(
+        target_label=("target_label", "first"),
+        n_recordings=("audio_id", "nunique"),
+        **{score_col: (score_col, "mean")},
+    )
+    labels = recording.groupby(["patient_uid", device_col])["target_label"].nunique()
+    if (labels != 1).any():
+        raise ValueError("un paciente-dispositivo con etiquetas mixtas")
+    return grouped
+
+
+def compute_metrics_by_device(
+    patient_device: pd.DataFrame,
+    negative_label_name: str,
+    threshold: float = 0.0,
+    device_col: str = "device",
+    label_col: str = "target_label",
+    score_col: str = "score",
+) -> pd.DataFrame:
+    """Metricas por dispositivo sobre ``aggregate_patient_device``. Con una
+    sola clase presente: conteos y recalls disponibles, resto en NaN."""
+    neg_key = negative_label_name.strip().lower()
+    rows = []
+    for device, group in patient_device.groupby(device_col, sort=True):
+        y_true = group[label_col].to_numpy(dtype=np.int64)
+        y_score = group[score_col].to_numpy(dtype=np.float64)
+        y_pred = scores_to_predictions(y_score, threshold)
+        is_pos, is_neg = y_true == POSITIVE_LABEL, y_true == NEGATIVE_LABEL
+        n_pos, n_neg = int(is_pos.sum()), int(is_neg.sum())
+        both = n_pos > 0 and n_neg > 0
+
+        recall_copd = float((y_pred[is_pos] == POSITIVE_LABEL).mean()) if n_pos else float("nan")
+        recall_neg = float((y_pred[is_neg] == NEGATIVE_LABEL).mean()) if n_neg else float("nan")
+        tn, fp, fn, tp = sk_confusion_matrix(y_true, y_pred, labels=LABEL_ORDER).ravel()
+        rows.append({
+            device_col: device,
+            "n_patient_devices": int(len(group)),
+            "n_copd": n_pos,
+            f"n_{neg_key}": n_neg,
+            "both_classes": bool(both),
+            "recall_copd": recall_copd,
+            f"recall_{neg_key}": recall_neg,
+            "balanced_accuracy": float(np.mean([recall_copd, recall_neg])) if both else float("nan"),
+            "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)) if both else float("nan"),
+            "auroc": float(roc_auc_score(y_true, y_score)) if both else float("nan"),
+            "auprc_copd": float(average_precision_score(y_true, y_score, pos_label=POSITIVE_LABEL)) if both else float("nan"),
+            "tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp),
+            "threshold": float(threshold),
+        })
+    return pd.DataFrame(rows)
+
+
+def counts_by_device(segment_scores: pd.DataFrame, negative_label_name: str, device_col: str = "device") -> pd.DataFrame:
+    """Segmentos, grabaciones, pacientes y paciente-dispositivos por
+    dispositivo y clase (``target_label``), en formato largo."""
+    neg_key = negative_label_name.strip().lower()
+    class_name = {POSITIVE_LABEL: "copd", NEGATIVE_LABEL: neg_key}
+    rows = []
+    for (device, label), group in segment_scores.groupby([device_col, "target_label"], sort=True):
+        rows.append({
+            device_col: device,
+            "class": class_name.get(int(label), str(label)),
+            "target_label": int(label),
+            "n_segments": int(len(group)),
+            "n_recordings": int(group["audio_id"].nunique()),
+            # Un paciente-dispositivo es un par (paciente, este dispositivo): por
+            # eso coincide con el numero de pacientes distintos del grupo.
+            "n_patient_devices": int(group["patient_uid"].nunique()),
+        })
+    return pd.DataFrame(rows)

@@ -1,0 +1,193 @@
+# CNN 2D propia en el protocolo holdout + validacion cruzada v3
+# (PLAN-EXPERIMENTO FINAL.md), dataset COMBINED (ICBHI + Fraiwan Extended).
+#
+# Todo es identico a cnn_v3.toml salvo [datasets]/[experiments], que describen
+# COMBINED. COMBINED hereda EXACTAMENTE la asignacion de cada paciente (80/20 y
+# fold interno) de su dataset de origen, no vuelve a sortear: los mismos
+# pacientes y folds que en ICBHI y Fraiwan por separado. Ademas de las metricas
+# globales, se guardan las de cada source_dataset.
+#
+# No hay rutas personales: --data-root / --runs-root / --cache-root, o las
+# variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT.
+
+protocol = "holdout_cv_v3"
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[weights]
+normalize_to_mean_one = true
+
+[normalization]
+axis = "mel_band"
+weighted = true
+std_floor = 1e-6
+
+[cnn]
+in_channels = 1
+channels = [32, 64, 128, 256]
+hidden_units = 128
+expected_parameters = 1205921
+
+[training]
+optimizer = "adamw"
+# weight_decay y batch_size de aqui son solo los valores base: cada
+# configuracion de [search] los sustituye por los suyos.
+weight_decay = 1e-4
+batch_size = 32
+eval_batch_size = 256
+max_epochs = 150
+min_epochs = 20
+patience = 15
+grad_clip_norm = 1.0
+scheduler = "cosine"
+t_max = 150
+eta_min = 1e-6
+amp = true
+
+[search]
+# 3 x 4 x 3 x 3 = 108 combinaciones; se muestrean 20 UNICAS sin reemplazo con
+# numpy.random.RandomState(random_state). CNN y CRNN leen esta misma seccion
+# (crnn_combined_v3.toml debe copiarla sin cambios), asi que reciben la misma
+# lista, identica ademas a la de los TOML de datasets individuales.
+mode = "random_without_replacement"
+n_configurations = 20
+random_state = 20260914
+learning_rate = [0.0001, 0.0003, 0.001]
+dropout = [0.2, 0.3, 0.4, 0.5]
+weight_decay = [0.00001, 0.0001, 0.001]
+batch_size = [16, 32, 64]
+
+[selection]
+# Orden exacto de los criterios (PLAN-EXPERIMENTO FINAL.md, seccion 3). El
+# ejecutor valida que esta lista sea exactamente esta.
+criteria = [
+    "balanced_accuracy_mean",
+    "macro_f1_mean",
+    "min_class_recall_mean",
+    "balanced_accuracy_std",
+    "config_order",
+]
+
+[metrics]
+primary = "balanced_accuracy"
+descriptive = ["accuracy"]
+reported = [
+    "accuracy", "balanced_accuracy", "recall_copd", "recall_negative", "macro_f1",
+    "auroc", "auprc_copd", "confusion_matrix", "roc_curve", "pr_curve",
+]
+aggregation = ["fold_mean", "fold_std", "pooled"]
+
+[evaluation]
+# Umbral sobre la probabilidad media por paciente.
+decision_threshold = 0.5
+
+[augmentation]
+time_mask_max_frames = 20
+time_mask_probability = 0.5
+freq_mask_max_bands = 6
+freq_mask_probability = 0.5
+fill_value = 0.0
+
+[seeds]
+base = 20260914
+
+[determinism]
+cudnn_deterministic = true
+deterministic_algorithms = true
+warn_only = true
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+# Salida de preprocessing/fold_denoising.py --protocol holdout-v3 --stage cv:
+# <dataset>/cv/fold_00..fold_04/.
+default_data_root = "preprocessing/data/holdout_calibrated"
+default_runs_root = "modeling/runs/holdout_final"
+default_cache_root = "modeling/cache/logmel_holdout"
+
+[holdout]
+split_csv = "modeling/data/holdout_splits.csv"
+split_manifest = "modeling/data/holdout_splits_manifest.json"
+n_splits = 5
+random_state = 20260914
+
+[outer_test]
+# La prueba externa esta bloqueada en esta etapa: ninguna funcion la lee.
+enabled = false
+
+[final_model]
+# No se guarda ningun modelo: los de cada fold son temporales. El definitivo se
+# entrenara despues de que el benchmarking elija arquitectura y condicion.
+enabled = false
+
+[datasets.COMBINED]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Control"
+negative_label_name = "Control"
+
+# ---------------------------------------------------------------------------
+# Condiciones: no_dn, dn y no_dn_aug (sin denoising + SpecAugment). no_dn_aug
+# usa la misma rama y el mismo Log-Mel que no_dn y reutiliza su configuracion
+# global (hyperparameters_from = "no_dn"); solo cambia el aumento de datos.
+# ---------------------------------------------------------------------------
+
+[experiments.main]
+description = "Condicion principal: sin denoising."
+
+[experiments.main.COMBINED]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Comparacion emparejada no_dn vs dn, mismos folds internos."
+
+[[experiments.denoising_ablation.COMBINED]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.COMBINED]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[experiments.augmentation_ablation]
+description = "Comparacion emparejada no_dn vs no_dn_aug, mismos pacientes y folds internos."
+
+[[experiments.augmentation_ablation.COMBINED]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.COMBINED]]
+condition = "no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "no_dn"

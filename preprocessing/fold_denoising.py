@@ -59,11 +59,37 @@ Salida, publicada atomicamente (staging + rename, ver ``utils.prepare_staging``/
     |-- segments_dn.npy
     |-- preprocessing_params.json
     `-- manifest.json
+
+Protocolo holdout-v3 (``--protocol holdout-v3 --stage cv``,
+PLAN-EXPERIMENTO FINAL.md): mismo procesamiento por fold, pero sobre la
+separacion 80 % desarrollo / 20 % prueba externa de
+``modeling/data/holdout_splits.csv``. Cada fold ``k`` tiene SOLO los roles
+``train`` (los cuatro grupos internos restantes) y ``validation`` (el grupo
+``k``) y contiene UNICAMENTE pacientes de desarrollo: los de la prueba externa
+no aparecen en el CSV, en los NPY, en la calibracion del denoising ni del
+``TARGET_RMS``, ni en ninguna estadistica. El denoising y la amplitud se
+calibran solo con los pacientes de train del fold, y el manifiesto guarda el
+hash del split (csv y manifiesto), de los datos de entrada y de los parametros
+calculados:
+
+    preprocessing/data/holdout_calibrated/<dataset_scope>/cv/fold_<00..04>/
+    |-- segments.csv
+    |-- segments_no_dn.npy
+    |-- segments_dn.npy
+    |-- preprocessing_params.json
+    `-- manifest.json
+
+    python fold_denoising.py --protocol holdout-v3 --stage cv \
+        --dataset-scope ICBHI --fold-id 0
+
+No genera todavia ningun preprocesamiento del 80 % completo ni material
+destinado a la prueba externa: esas etapas pertenecen a una entrega posterior.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
 import subprocess
@@ -103,17 +129,57 @@ REQUIRED_SEGMENT_COLUMNS = (
     "calibration_patient", "dn_reliable", "dn_flag_reason", "fold_id", "role",
 )
 
+# Protocolo holdout-v3 (ver docstring del modulo).
+PROTOCOL_FOLD_AWARE_V2 = "fold-aware-v2"
+PROTOCOL_HOLDOUT_V3 = "holdout-v3"
+HOLDOUT_STAGES = ("cv",)
+HOLDOUT_OUTPUT_ROOT = cfg.PREPROC / "data" / "holdout_calibrated"
+DEFAULT_HOLDOUT_SPLIT_CSV = cfg.ROOT / "modeling" / "data" / "holdout_splits.csv"
+DEFAULT_HOLDOUT_SPLIT_MANIFEST = cfg.ROOT / "modeling" / "data" / "holdout_splits_manifest.json"
+HOLDOUT_SPLIT_COLUMNS = (
+    "dataset_scope", "patient_uid", "source_dataset", "target_label",
+    "outer_role", "inner_fold_group", "calibration_patient",
+)
+OUTER_ROLE_DEVELOPMENT = "development"
+OUTER_ROLE_TEST = "test"
+OUTER_TEST_FOLD_GROUP = -1
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Recalibra denoising/TARGET_RMS por fold y segmenta (protocolo fold-aware v2)."
+        description="Recalibra denoising/TARGET_RMS por fold y segmenta "
+                    "(protocolo fold-aware v2, o holdout-v3 sobre el 80 % de desarrollo)."
     )
     parser.add_argument("--dataset-scope", choices=DATASET_SCOPES, required=True)
     parser.add_argument("--fold-id", type=int, required=True)
+    parser.add_argument(
+        "--protocol", choices=(PROTOCOL_FOLD_AWARE_V2, PROTOCOL_HOLDOUT_V3), default=PROTOCOL_FOLD_AWARE_V2,
+        help="fold-aware-v2 (por defecto) o holdout-v3.",
+    )
+    parser.add_argument(
+        "--stage", choices=HOLDOUT_STAGES, default=None,
+        help="Solo holdout-v3: 'cv' genera los folds internos de validacion cruzada (unica etapa de esta entrega).",
+    )
     parser.add_argument("--patient-folds-csv", type=Path, default=DEFAULT_PATIENT_FOLDS_CSV)
     parser.add_argument("--patient-folds-manifest", type=Path, default=DEFAULT_PATIENT_FOLDS_MANIFEST)
-    parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--split-csv", type=Path, default=None,
+        help=f"Solo holdout-v3. Por defecto {DEFAULT_HOLDOUT_SPLIT_CSV}.",
+    )
+    parser.add_argument(
+        "--split-manifest", type=Path, default=None,
+        help=f"Solo holdout-v3. Por defecto {DEFAULT_HOLDOUT_SPLIT_MANIFEST}.",
+    )
+    parser.add_argument(
+        "--output-root", type=Path, default=None,
+        help=f"Por defecto {OUTPUT_ROOT} (fold-aware-v2) o {HOLDOUT_OUTPUT_ROOT} (holdout-v3).",
+    )
+    args = parser.parse_args(argv)
+    if args.protocol == PROTOCOL_HOLDOUT_V3:
+        args.stage = args.stage or "cv"
+    elif args.stage is not None or args.split_csv is not None or args.split_manifest is not None:
+        parser.error("--stage, --split-csv y --split-manifest solo aplican con --protocol holdout-v3")
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -532,13 +598,268 @@ def run_fold(
     return manifest
 
 
+# ---------------------------------------------------------------------------
+# Protocolo holdout-v3: folds internos de validacion cruzada SOLO sobre el 80 %
+# de desarrollo. La prueba externa queda fuera de todo: se lee unicamente su
+# lista de identificadores para VERIFICAR que no aparece en ninguna salida.
+# ---------------------------------------------------------------------------
+
+def load_holdout_cv_roles(
+    csv_path: Path, manifest_path: Path, dataset_scope: str, fold_id: int,
+) -> tuple[pd.DataFrame, frozenset]:
+    """``(roles, pacientes_de_prueba_bloqueados)`` para ``(dataset_scope,
+    fold interno fold_id)``.
+
+    ``roles`` contiene SOLO pacientes de desarrollo, con ``role`` =
+    ``validation`` si ``inner_fold_group == fold_id`` y ``train`` en cualquier
+    otro caso; nunca ``test``. Se verifica el hash de ``holdout_splits.csv``
+    contra su manifiesto igual que en ``load_patient_roles``. El segundo valor
+    son los ``patient_uid`` de la prueba externa, solo para excluirlos y
+    comprobar despues que no se filtraron.
+    """
+    csv_path, manifest_path = Path(csv_path), Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    actual_hash = u.file_sha256(csv_path)
+    expected_hash = manifest.get("holdout_splits_csv_sha256")
+    if actual_hash != expected_hash:
+        raise ValueError(
+            f"{csv_path}: sha256 {actual_hash[:12]}... no coincide con el manifiesto "
+            f"{manifest_path} ({str(expected_hash)[:12]}...); regenere con "
+            "'python -m modeling.build_master_folds --protocol holdout-v3'"
+        )
+    if manifest.get("protocol") != PROTOCOL_HOLDOUT_V3:
+        raise ValueError(f"{manifest_path}: protocol={manifest.get('protocol')!r}, se esperaba {PROTOCOL_HOLDOUT_V3!r}")
+
+    full = pd.read_csv(csv_path, dtype={"patient_uid": str, "source_dataset": str})
+    missing = set(HOLDOUT_SPLIT_COLUMNS) - set(full.columns)
+    if missing:
+        raise ValueError(f"{csv_path}: faltan columnas {sorted(missing)}")
+
+    table = full.loc[full["dataset_scope"] == dataset_scope].drop(columns="dataset_scope").reset_index(drop=True)
+    if table.empty:
+        raise ValueError(f"{csv_path}: no hay filas para dataset_scope={dataset_scope!r}")
+    table["calibration_patient"] = table["calibration_patient"].astype(bool)
+
+    unknown = set(table["outer_role"]) - {OUTER_ROLE_DEVELOPMENT, OUTER_ROLE_TEST}
+    if unknown:
+        raise ValueError(f"{dataset_scope}: outer_role desconocido: {sorted(unknown)}")
+    development = table.loc[table["outer_role"] == OUTER_ROLE_DEVELOPMENT]
+    test = table.loc[table["outer_role"] == OUTER_ROLE_TEST]
+    if development.empty:
+        raise ValueError(f"{dataset_scope}: ningun paciente de desarrollo")
+    if not (test["inner_fold_group"] == OUTER_TEST_FOLD_GROUP).all():
+        raise ValueError(
+            f"{dataset_scope}: hay pacientes de prueba con inner_fold_group distinto de {OUTER_TEST_FOLD_GROUP}"
+        )
+    n_splits = int(development["inner_fold_group"].max()) + 1
+    if not development["inner_fold_group"].between(0, n_splits - 1).all():
+        raise ValueError(f"{dataset_scope}: pacientes de desarrollo fuera de los grupos 0..{n_splits - 1}")
+    if not (0 <= fold_id < n_splits):
+        raise ValueError(f"fold_id={fold_id} fuera de rango para {dataset_scope} (0..{n_splits - 1})")
+
+    role = np.where(development["inner_fold_group"].to_numpy() == fold_id, "validation", "train")
+    roles = development.assign(role=role).reset_index(drop=True)
+    return roles, frozenset(test["patient_uid"])
+
+
+def verify_outer_test_excluded(outer_test_ids: frozenset, *, scope_meta: pd.DataFrame,
+                               inventory: pd.DataFrame, params: dict) -> None:
+    """Ningun paciente de la prueba externa puede aparecer en las grabaciones
+    procesadas, en el CSV de segmentos ni en los pacientes que calibraron el
+    denoising o el ``TARGET_RMS`` de este fold."""
+    places = {
+        "grabaciones procesadas": set(scope_meta["patient_uid"]),
+        "segments.csv": set(inventory["patient_uid"]),
+        "calibracion (denoising/TARGET_RMS)": set(params["denoising_fit_patient_ids"])
+        | set(params["target_rms_fit_patient_ids"]),
+    }
+    leaked = {name: sorted(outer_test_ids & ids)[:5] for name, ids in places.items() if outer_test_ids & ids}
+    if leaked:
+        raise RuntimeError(f"fuga de la prueba externa bloqueada: {leaked}")
+
+
+def verify_inventory_matches_roles(inventory: pd.DataFrame, roles: pd.DataFrame) -> None:
+    """El fold contiene exactamente a los pacientes de train y validation del
+    split (ni uno mas, ni uno menos) y solo esos dos roles."""
+    present = set(inventory["role"])
+    if present != {"train", "validation"}:
+        raise RuntimeError(f"un fold de validacion cruzada debe tener exactamente los roles train y validation: {sorted(present)}")
+    for role in ("train", "validation"):
+        expected = set(roles.loc[roles["role"] == role, "patient_uid"])
+        got = set(inventory.loc[inventory["role"] == role, "patient_uid"])
+        if expected != got:
+            raise RuntimeError(
+                f"{role}: pacientes del split sin segmentos {sorted(expected - got)[:5]}, "
+                f"pacientes sobrantes {sorted(got - expected)[:5]}"
+            )
+
+
+def _repo_relative(path: Path) -> str:
+    """Ruta relativa a la raiz del repositorio si esta dentro de ella; si no,
+    la ruta tal cual."""
+    try:
+        return Path(path).resolve().relative_to(Path(cfg.ROOT).resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _phase2_input_digest(scope_meta: pd.DataFrame) -> str:
+    """Huella del conjunto exacto de audios de entrada: sha256 de las lineas
+    ``audio_id:output_sha256`` ordenadas."""
+    lines = sorted(f"{a}:{h}" for a, h in zip(scope_meta["audio_id"], scope_meta["output_sha256"]))
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def run_fold_holdout_v3(
+    dataset_scope: str,
+    fold_id: int,
+    split_csv: Path,
+    split_manifest: Path,
+    output_root: Path,
+    stage: str = "cv",
+) -> dict:
+    """Un ``(dataset_scope, fold interno)`` del protocolo holdout-v3: recalibra
+    solo con los pacientes de train del fold, procesa train+validation,
+    segmenta y publica atomicamente en ``<output_root>/<scope>/cv/fold_XX/``."""
+    if stage not in HOLDOUT_STAGES:
+        raise ValueError(f"stage={stage!r} no soportado (use {HOLDOUT_STAGES})")
+
+    # Primero el split (validacion barata y sin tocar fase 2): hash, protocolo y rango del fold.
+    roles, outer_test_ids = load_holdout_cv_roles(split_csv, split_manifest, dataset_scope, fold_id)
+    admitted = p3.admitted_recordings()
+    authorized_audio_ids = load_authorized_audio_ids(dataset_scope)
+    # roles solo trae pacientes de desarrollo: las grabaciones de la prueba
+    # externa quedan fuera por construccion (select_scope_recordings filtra por
+    # patient_uid ademas de por audio_id autorizado).
+    scope_meta = select_scope_recordings(admitted, authorized_audio_ids, roles)
+    verify_phase2_audio_hashes(scope_meta)
+
+    params = recalibrate_denoising(dataset_scope, scope_meta, roles)
+    verify_no_leakage_into_calibration(roles, params)
+
+    processed = process_fold_recordings(scope_meta, params)
+    cycles_by_audio = p4._load_cycle_bounds()
+    inventory = build_fold_segment_inventory(
+        dataset_scope, fold_id, processed["scope_meta"], roles,
+        processed["dn_reliable_map"], processed["dn_reason_map"], cycles_by_audio,
+    )
+    verify_outer_test_excluded(outer_test_ids, scope_meta=processed["scope_meta"], inventory=inventory, params=params)
+    verify_inventory_matches_roles(inventory, roles)
+    no_dn_array, dn_array = fill_fold_arrays(inventory, processed["no_dn_signals"], processed["dn_signals"])
+    validate_fold_output(inventory, no_dn_array, dn_array)
+
+    target_dir = Path(output_root) / dataset_scope / stage / f"fold_{fold_id:02d}"
+    staging = u.prepare_staging(target_dir)
+    try:
+        np.save(staging / "segments_no_dn.npy", no_dn_array)
+        np.save(staging / "segments_dn.npy", dn_array)
+        inventory.to_csv(staging / "segments.csv", index=False, lineterminator="\n")
+
+        split_hashes = {
+            "holdout_splits_csv_sha256": u.file_sha256(split_csv),
+            "holdout_splits_manifest_sha256": u.file_sha256(split_manifest),
+        }
+        preprocessing_params = {
+            "protocol": PROTOCOL_HOLDOUT_V3, "stage": stage,
+            "dataset_scope": dataset_scope, "fold_id": fold_id,
+            **split_hashes,
+            **params,
+            "peak_ceiling": float(cfg.PEAK_CEILING),
+            "bandpass_low_hz": int(cfg.BANDPASS_LOW), "bandpass_high_hz": int(cfg.BANDPASS_HIGH),
+            "bandpass_order": int(cfg.BANDPASS_ORDER),
+        }
+        (staging / "preprocessing_params.json").write_text(
+            json.dumps(preprocessing_params, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+        output_hashes = {
+            "segments.csv": u.file_sha256(staging / "segments.csv"),
+            "segments_no_dn.npy": u.file_sha256(staging / "segments_no_dn.npy"),
+            "segments_dn.npy": u.file_sha256(staging / "segments_dn.npy"),
+            "preprocessing_params.json": u.file_sha256(staging / "preprocessing_params.json"),
+        }
+        calibrated = {
+            k: params[k] for k in (
+                "nperseg", "noverlap", "noise_pct", "oversubtraction", "spectral_floor", "target_rms", "max_gain",
+            )
+        }
+        manifest = {
+            "verdict": "PASS",
+            "protocol": PROTOCOL_HOLDOUT_V3, "stage": stage,
+            "dataset_scope": dataset_scope, "fold_id": fold_id,
+            **split_hashes,
+            "input_hashes": {
+                "authorized_segments_csv": _repo_relative(AUTHORIZED_SEGMENTS_CSV[dataset_scope]),
+                "authorized_segments_csv_sha256": u.file_sha256(AUTHORIZED_SEGMENTS_CSV[dataset_scope]),
+                "phase2_resampling_report_sha256": u.file_sha256(cfg.R2_RESAMPLING),
+                "phase2_audio_set_sha256": _phase2_input_digest(processed["scope_meta"]),
+                "n_phase2_audios_verified": int(len(processed["scope_meta"])),
+            },
+            "calibrated_parameters": calibrated,
+            "n_calibration_patients": {
+                "denoising": int(len(params["denoising_fit_patient_ids"])),
+                "target_rms": int(len(params["target_rms_fit_patient_ids"])),
+            },
+            "n_segments": int(len(inventory)),
+            "n_patients": int(inventory["patient_uid"].nunique()),
+            "shape": list(no_dn_array.shape), "dtype": str(no_dn_array.dtype),
+            "counts_by_role": {
+                role: int(inventory.loc[inventory["role"] == role, "patient_uid"].nunique())
+                for role in ("train", "validation")
+            },
+            "outer_test": {"excluded": True, "n_blocked_patients": int(len(outer_test_ids))},
+            "output_hashes": output_hashes,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "git": _git_state(),
+            "python": sys.version.split()[0], "platform": platform.platform(),
+            "numpy": np.__version__, "pandas": pd.__version__, "scipy": scipy.__version__,
+        }
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+    except Exception:
+        import shutil
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    u.swap_staging_into_place(target_dir)
+    return manifest
+
+
+def main_holdout_v3(args: argparse.Namespace) -> int:
+    split_csv = args.split_csv or DEFAULT_HOLDOUT_SPLIT_CSV
+    split_manifest = args.split_manifest or DEFAULT_HOLDOUT_SPLIT_MANIFEST
+    output_root = args.output_root or HOLDOUT_OUTPUT_ROOT
+    u.section(f"FOLD-DENOISING holdout-v3 ({args.stage}): {args.dataset_scope} / fold_{args.fold_id:02d}")
+    try:
+        manifest = run_fold_holdout_v3(
+            args.dataset_scope, args.fold_id, split_csv, split_manifest, output_root, stage=args.stage,
+        )
+    except Exception as exc:  # noqa: BLE001 - se reporta con claridad, nunca se oculta
+        print(f"FALLO: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"  Segmentos       : {manifest['n_segments']}")
+    print(f"  Pacientes       : {manifest['n_patients']} ({manifest['counts_by_role']})")
+    print(f"  Prueba externa  : {manifest['outer_test']['n_blocked_patients']} pacientes bloqueados, ausentes")
+    print(f"  Forma           : {manifest['shape']} ({manifest['dtype']})")
+    print(f"  Salida          : {Path(output_root) / args.dataset_scope / args.stage / f'fold_{args.fold_id:02d}'}")
+    print("  Veredicto       : PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.protocol == PROTOCOL_HOLDOUT_V3:
+        return main_holdout_v3(args)
+
+    output_root = args.output_root or OUTPUT_ROOT
     u.section(f"FOLD-DENOISING: {args.dataset_scope} / fold_{args.fold_id:02d}")
     try:
         manifest = run_fold(
             args.dataset_scope, args.fold_id, args.patient_folds_csv,
-            args.patient_folds_manifest, args.output_root,
+            args.patient_folds_manifest, output_root,
         )
     except Exception as exc:  # noqa: BLE001 - se reporta con claridad, nunca se oculta
         print(f"FALLO: {exc}", file=sys.stderr)
@@ -547,7 +868,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Segmentos       : {manifest['n_segments']}")
     print(f"  Pacientes       : {manifest['n_patients']} ({manifest['counts_by_role']})")
     print(f"  Forma           : {manifest['shape']} ({manifest['dtype']})")
-    print(f"  Salida          : {Path(args.output_root) / args.dataset_scope / f'fold_{args.fold_id:02d}'}")
+    print(f"  Salida          : {Path(output_root) / args.dataset_scope / f'fold_{args.fold_id:02d}'}")
     print("  Veredicto       : PASS")
     return 0
 

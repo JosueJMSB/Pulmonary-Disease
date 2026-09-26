@@ -620,6 +620,10 @@ class ValidationRun:
     history: pd.DataFrame
     normalization: NormalizationStats
     seconds: float
+    # Logits de validation en la mejor epoca (protocolo holdout-v3: la unidad
+    # (configuracion, fold) guarda sus predicciones de validation). Los
+    # protocolos anteriores no lo leen.
+    best_logits: np.ndarray | None = None
 
 
 def train_with_validation(
@@ -666,6 +670,7 @@ def train_with_validation(
     val_labels = val_seg["target_label"].to_numpy(dtype=np.float64)
 
     rows, best_key, best_epoch, best_metrics = [], None, 0, {}
+    best_logits = None
     stopped_early, epoch = False, 0
     for epoch in range(1, settings.max_epochs + 1):
         lr_epoch = float(optimizer.param_groups[0]["lr"])
@@ -682,6 +687,7 @@ def train_with_validation(
         improved = best_key is None or key > best_key
         if improved:
             best_key, best_epoch, best_metrics = key, epoch, dict(metrics)
+            best_logits = logits.copy()
 
         rows.append({
             "config_index": config.index, "lr": config.lr, "dropout": config.dropout,
@@ -710,7 +716,7 @@ def train_with_validation(
     return ValidationRun(
         config=config, best_epoch=best_epoch, epochs_run=epoch, stopped_early=stopped_early,
         best_metrics=best_metrics, history=pd.DataFrame(rows), normalization=stats,
-        seconds=time.perf_counter() - started,
+        seconds=time.perf_counter() - started, best_logits=best_logits,
     )
 
 

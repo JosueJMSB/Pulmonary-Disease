@@ -364,3 +364,64 @@ Cubre la configuracion igual a la CNN, el conteo total y por partes, las formas
 intermedias, los pesos de atencion finitos que suman 1, los gradientes en todos
 los parametros, el fold completo del protocolo compartido, el checkpoint y el
 rechazo de un `--resume` incompatible.
+
+## Protocolo holdout + validacion cruzada v3 (`holdout_final`)
+
+Sustituye la evaluacion OOF anterior por: 80 % de los pacientes para desarrollo
+y 20 % de prueba externa **bloqueada** (una unica separacion); 5 folds internos
+solo sobre el 80 %; cada configuracion exacta evaluada en los cinco folds y una
+**sola** configuracion global por pipeline (modelo x dataset x condicion). En
+esta entrega no se usa la prueba externa, no se elige una arquitectura global ni
+se guarda ningun modelo. Los protocolos `oof_v1` y `fold_aware_v2` no cambian;
+las configuraciones estan en `configs/holdout_final/` (ver `configs/README.md`).
+
+### Archivos
+
+- `build_master_folds.py --protocol holdout-v3`: separacion 80/20 y folds
+  internos -> `data/holdout_splits.csv` y `data/holdout_splits_manifest.json`.
+- `../preprocessing/fold_denoising.py --protocol holdout-v3 --stage cv`: los 15
+  folds de desarrollo (`preprocessing/data/holdout_calibrated/<dataset>/cv/fold_XX/`).
+- `holdout_cv.py`: nucleo sin PyTorch (candidatos, unidades atomicas,
+  seleccion, artefactos, huella y `--dry-run`); `holdout_svm.py` y
+  `holdout_cnn.py` (CNN y CRNN): entrenamiento.
+- `run_holdout_sequence.py`: lanzador de los seis pasos.
+
+### Ejecucion (en el servidor de entrenamiento)
+
+```bash
+# 1. Pruebas
+python -m pytest modeling/tests preprocessing/tests -q
+
+# 2. Separacion 80/20 (una sola vez; idempotente si nada cambio)
+python -m modeling.build_master_folds --protocol holdout-v3
+
+# 3. Los 15 folds de desarrollo
+for scope in ICBHI FRAIWAN_Extended COMBINED; do
+  for fold in 0 1 2 3 4; do
+    python preprocessing/fold_denoising.py --protocol holdout-v3 --stage cv \
+        --dataset-scope "$scope" --fold-id "$fold" || break 2
+  done
+done
+
+# 4. Los seis dry-runs, sin entrenar
+python -u -m modeling.run_holdout_sequence --dry-run-only
+
+# 5. Secuencia completa (valida de nuevo y entrena en el orden fijado)
+python -u -m modeling.run_holdout_sequence --execute --device cuda:0
+# Reanudar tras una interrupcion o un fallo:
+python -u -m modeling.run_holdout_sequence --execute --device cuda:0 --resume-sequence
+```
+
+El lanzador no construye splits ni preprocesamiento. `--resume` valida la huella
+(datos, split, configuracion, arquitectura, modo y **version del codigo**: hash de
+`modeling/**/*.py`) y omite las unidades `(configuracion, fold)` ya completadas;
+si el codigo cambio tras una ejecucion incompleta, la reanudacion se rechaza y
+hay que empezar una nueva. Cada pipeline entrega ademas sus figuras
+(`figures/`) y la ejecucion, `cv_run_summary.csv` con todas las metricas.
+
+### Pruebas
+
+`tests/test_holdout_splits.py`, `tests/test_holdout_protocol.py`,
+`tests/test_holdout_svm_run.py`, `tests/test_holdout_cnn.py` (se omite sin
+PyTorch), `tests/test_run_holdout_sequence.py` y
+`../preprocessing/tests/test_fold_denoising_holdout.py`, con datos sinteticos.

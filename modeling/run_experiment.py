@@ -10,7 +10,10 @@
 
 ``--model cnn`` carga ``configs/oof_v1/cnn.toml`` y despacha a
 ``modeling.cnn_experiment``; ``--model svm_rbf`` sigue exactamente el flujo de
-este archivo. No hay rutas personales: ``--data-root``/``--runs-root``/
+este archivo. Un TOML con ``protocol = "holdout_cv_v3"`` (carpeta
+``configs/holdout_final/``) despacha, para los tres modelos, a
+``modeling.holdout_svm`` / ``modeling.holdout_cnn``; los TOML de ``oof_v1`` y
+``fold_aware_v2`` no se ven afectados. No hay rutas personales: ``--data-root``/``--runs-root``/
 ``--cache-root``, o las variables ``PULMONARY_DATA_ROOT`` /
 ``PULMONARY_RUNS_ROOT`` / ``PULMONARY_CACHE_ROOT``, resuelven donde viven los
 datos y los resultados en cada maquina (ver ``modeling.data.resolve_path``).
@@ -291,6 +294,16 @@ def verify_run_fingerprint(run_root: Path, fingerprint: dict) -> None:
         mismatches.append(
             f"cambio la arquitectura, el modelo o el modo --smoke-test: "
             f"{stored.get('extra')} -> {fingerprint.get('extra')}"
+        )
+    # Solo el protocolo holdout-v3 guarda la version del codigo; en los demas
+    # ambos lados son None y esta comprobacion no cambia nada.
+    if stored.get("code_sha256") != fingerprint.get("code_sha256"):
+        old_files, new_files = stored.get("code_files", {}), fingerprint.get("code_files", {})
+        changed = sorted(k for k in set(old_files) | set(new_files) if old_files.get(k) != new_files.get(k))
+        detail = f" (archivos: {', '.join(changed[:10])}{' ...' if len(changed) > 10 else ''})" if changed else ""
+        mismatches.append(
+            "el codigo de modeling/ cambio desde la ejecucion original: reutilizar unidades entrenadas "
+            f"con otra implementacion mezclaria resultados incoherentes{detail}"
         )
     stored_hashes = stored.get("input_hashes", {})
     for key, value in fingerprint["input_hashes"].items():
@@ -1223,6 +1236,22 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+
+    if dmod.is_holdout_protocol(cfg):
+        # Protocolo holdout + validacion cruzada v3 (PLAN-EXPERIMENTO FINAL.md):
+        # se activa con ``protocol = "holdout_cv_v3"`` en el TOML. Imports
+        # diferidos: el entorno de la SVM no necesita PyTorch.
+        if args.model == "svm_rbf":
+            from .holdout_svm import run_holdout_svm
+
+            return run_holdout_svm(args, cfg)
+        architecture = dmod.model_architecture(cfg)
+        if architecture != args.model:
+            print(f"--model {args.model} con un TOML de arquitectura {architecture!r}", file=sys.stderr)
+            return 2
+        from .holdout_cnn import run_holdout_cnn
+
+        return run_holdout_cnn(args, cfg)
 
     if args.model in ("cnn", "crnn"):
         # El TOML debe describir la misma red que --model: evita, por ejemplo,

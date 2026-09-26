@@ -23,8 +23,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_ROOT = Path(__file__).resolve().parent / "configs"
 OOF_V1_CONFIGS_DIR = CONFIGS_ROOT / "oof_v1"
 FOLD_AWARE_V2_CONFIGS_DIR = CONFIGS_ROOT / "fold_aware_v2"
+HOLDOUT_FINAL_CONFIGS_DIR = CONFIGS_ROOT / "holdout_final"
 DEFAULT_CONFIG_PATH = OOF_V1_CONFIGS_DIR / "svm_rbf.toml"
 BRANCHES = ("no_dn", "dn")
+
+# Protocolo holdout + validacion cruzada v3: un TOML lo activa con
+# ``protocol = "holdout_cv_v3"`` (clave de primer nivel). Los TOML de los
+# protocolos anteriores no la tienen, asi que ninguno de ellos cambia.
+HOLDOUT_PROTOCOL = "holdout_cv_v3"
+
+
+def is_holdout_protocol(cfg: dict) -> bool:
+    return cfg.get("protocol") == HOLDOUT_PROTOCOL
 
 
 def load_config(config_path: Path | None = None) -> dict:
@@ -134,17 +144,27 @@ REQUIRED_SEGMENT_COLUMNS = {
 }
 
 
-def dataset_root(data_root: Path, dataset: str, fold_id: int | None = None) -> Path:
+def dataset_root(data_root: Path, dataset: str, fold_id: int | str | None = None) -> Path:
     """Directorio de un dataset o, en el protocolo fold-aware, de uno de sus
     folds. ``fold_id=None`` reproduce la ruta actual byte a byte -cero riesgo
-    para ICBHI/FRAIWAN_Extended/COMBINED-. Con ``fold_id`` dado, añade
+    para ICBHI/FRAIWAN_Extended/COMBINED-. Con ``fold_id`` entero, añade
     ``fold_00``..``fold_04`` (mismo formato que usa
     ``preprocessing/fold_denoising.py``; no debe confundirse con el
     ``fold_01``..``fold_05`` de ``artifacts.fold_dir``, que numera los folds
     de una corrida de modelo, no los de esta preparacion de datos).
+
+    Con ``fold_id`` de tipo ``str`` (protocolo holdout-v3) se interpreta como
+    una subruta relativa al dataset, p. ej. ``"cv/fold_00"``
+    (``holdout_cv.cv_fold_ref``): asi todas las funciones de carga y de cache
+    de este modulo, que solo propagan ``fold_id``, sirven tambien para la
+    disposicion ``<dataset>/cv/fold_XX/`` sin cambiar su firma.
     """
     base = Path(data_root) / dataset
-    return base if fold_id is None else base / f"fold_{fold_id:02d}"
+    if fold_id is None:
+        return base
+    if isinstance(fold_id, str):
+        return base / fold_id
+    return base / f"fold_{fold_id:02d}"
 
 
 def load_task_segments(data_root: Path, dataset: str, fold_id: int | None = None) -> pd.DataFrame:
@@ -461,6 +481,14 @@ def reference_cnn_config_path(cfg: dict) -> Path:
     name = cfg.get("model", {}).get("reference_cnn_config")
     if name is None:
         return CNN_CONFIG_PATH
+    # El TOML de referencia vive junto a los de su mismo protocolo (oof_v1,
+    # fold_aware_v2 o holdout_final): se busca el nombre en cada carpeta. Si no
+    # existe en ninguna, se conserva la ruta anterior (oof_v1), para que el
+    # error de archivo inexistente apunte al mismo sitio que siempre.
+    for directory in (OOF_V1_CONFIGS_DIR, FOLD_AWARE_V2_CONFIGS_DIR, HOLDOUT_FINAL_CONFIGS_DIR):
+        candidate = directory / name
+        if candidate.is_file():
+            return candidate
     return CNN_CONFIG_PATH.parent / name
 LOGMEL_COMPARE_KEYS = ("segments_csv_sha256", "segments_npy_sha256", "config_fingerprint", "shape", "dtype")
 
