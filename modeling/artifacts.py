@@ -94,7 +94,7 @@ def git_state() -> dict:
 # Serializador TOML minimo (solo para volcar la configuracion resuelta).
 #
 # No es un escritor TOML general: cubre exactamente las formas presentes en
-# configs/svm_rbf.toml (tablas anidadas, arrays de tablas de un nivel,
+# configs/oof_v1/svm_rbf.toml (tablas anidadas, arrays de tablas de un nivel,
 # escalares y listas de escalares), que es todo lo que resolved_config.toml
 # necesita representar.
 # ---------------------------------------------------------------------------

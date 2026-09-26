@@ -43,7 +43,7 @@ from pathlib import Path
 from . import data as dmod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+CONFIGS_DIR = dmod.FOLD_AWARE_V2_CONFIGS_DIR
 
 # (modelo, nombre del TOML) en el orden exacto de ejecucion: cada modelo,
 # primero individual (ICBHI+Fraiwan) y luego COMBINED, antes de pasar al

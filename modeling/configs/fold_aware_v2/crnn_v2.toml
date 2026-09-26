@@ -1,15 +1,18 @@
-# Configuracion versionada de la CRNN sobre COMBINED, protocolo fold-aware
-# (v2). Todas las secciones del protocolo son copia exacta de
-# configs/cnn_combined_v2.toml (referenciado explicitamente via
-# reference_cnn_config, ya que la CRNN individual se compara con cnn_v2.toml
-# por defecto). Solo cambian [model] y [crnn].
+# Configuracion versionada de la CRNN sobre el protocolo fold-aware (v2).
+#
+# Todas las secciones del protocolo son copia exacta de fold_aware_v2/cnn_v2.toml:
+# mismo Log-Mel (y por tanto la misma cache), mismos folds (via
+# modeling/data/patient_folds.csv), pesos, normalizacion, busqueda,
+# seleccion, augmentation, condiciones y bootstrap. Solo cambian [model] y
+# [crnn]. La ejecucion se niega a arrancar si alguna seccion compartida
+# difiere de cnn_v2.toml (cnn_experiment.config_consistency_checks).
 #
 # No hay rutas personales: --data-root / --runs-root / --cache-root, o las
 # variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT.
 
 [model]
 architecture = "crnn"
-reference_cnn_config = "cnn_combined_v2.toml"
+reference_cnn_config = "cnn_v2.toml"
 
 [crnn]
 in_channels = 1
@@ -24,7 +27,7 @@ head_hidden = 128
 expected_parameters = 1192482
 
 # ---------------------------------------------------------------------------
-# A partir de aqui: copia exacta de cnn_combined_v2.toml.
+# A partir de aqui: copia exacta de cnn_v2.toml.
 # ---------------------------------------------------------------------------
 
 [acoustic]
@@ -99,7 +102,6 @@ criteria = [
 
 [evaluation]
 decision_threshold = 0.5
-report_by_source = true
 
 [augmentation]
 time_mask_max_frames = 20
@@ -137,15 +139,25 @@ patient_folds_manifest = "modeling/data/patient_folds_manifest.json"
 [final_model]
 enabled = false
 
-[datasets.COMBINED]
+[datasets.ICBHI]
 positive_diagnosis = "COPD"
-negative_diagnosis = "Control"
-negative_label_name = "Control"
+negative_diagnosis = "Healthy"
+negative_label_name = "Healthy"
+
+[datasets.FRAIWAN_Extended]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Normal"
+negative_label_name = "Normal"
 
 [experiments.main]
 description = "Condicion principal: sin denoising."
 
-[experiments.main.COMBINED]
+[experiments.main.ICBHI]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.main.FRAIWAN_Extended]
 condition = "no_dn"
 branch = "no_dn"
 dn_reliable_only = false
@@ -153,13 +165,24 @@ dn_reliable_only = false
 [experiments.denoising_ablation]
 description = "Comparacion emparejada no_dn vs dn, mismo fold, denoising recalibrado con train de ese fold."
 
-[[experiments.denoising_ablation.COMBINED]]
+[[experiments.denoising_ablation.ICBHI]]
 condition = "no_dn"
 branch = "no_dn"
 dn_reliable_only = false
 reused_from_main = true
 
-[[experiments.denoising_ablation.COMBINED]]
+[[experiments.denoising_ablation.ICBHI]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
 condition = "dn"
 branch = "dn"
 dn_reliable_only = false
@@ -167,13 +190,26 @@ dn_reliable_only = false
 [experiments.augmentation_ablation]
 description = "Comparacion emparejada no_dn vs no_dn_aug, mismos pacientes y folds."
 
-[[experiments.augmentation_ablation.COMBINED]]
+[[experiments.augmentation_ablation.ICBHI]]
 condition = "no_dn"
 branch = "no_dn"
 dn_reliable_only = false
 reused_from_main = true
 
-[[experiments.augmentation_ablation.COMBINED]]
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "no_dn"
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
 condition = "no_dn_aug"
 branch = "no_dn"
 dn_reliable_only = false

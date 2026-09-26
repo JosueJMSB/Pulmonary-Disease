@@ -6,7 +6,7 @@ linea base Dummy, staging atomico, huella y --resume-, asi que reutiliza
 ``cnn_experiment.run_cnn``. Lo especifico de la CRNN esta en:
 
 - ``models/crnn.py``: la red;
-- ``configs/crnn.toml``: ``[model] architecture = "crnn"`` y ``[crnn]``;
+- ``configs/oof_v1/crnn.toml``: ``[model] architecture = "crnn"`` y ``[crnn]``;
 - ``cnn_experiment.config_consistency_checks``: rechaza ejecutar si crnn.toml
   difiere de cnn.toml en alguna seccion del protocolo;
 - ``cnn_experiment.fingerprint_sections``: la huella incluye [model]/[crnn].

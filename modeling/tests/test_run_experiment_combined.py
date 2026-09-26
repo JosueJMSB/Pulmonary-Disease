@@ -9,14 +9,12 @@ No entrena ni toca datos reales: el rechazo ocurre antes de resolver
 data-root o abrir ninguna ejecucion.
 """
 
-from pathlib import Path
-
 import pytest
 
 from .. import data as dmod
 from .. import run_experiment as rexp
 
-CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
+CONFIGS_DIR = dmod.OOF_V1_CONFIGS_DIR
 
 
 def test_combined_rejected_on_single_dataset_svm_config(capsys):

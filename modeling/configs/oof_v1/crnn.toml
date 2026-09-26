@@ -1,20 +1,16 @@
-# Configuracion versionada de la CRNN sobre el dataset combinado (ICBHI +
-# Fraiwan Extended armonizados en una sola coleccion COMBINED).
+# Configuracion versionada de la CRNN (CNN + BiGRU + atencion temporal).
 #
-# Todas las secciones del protocolo son copia exacta de configs/cnn_combined.toml:
+# Todas las secciones del protocolo son copia exacta de oof_v1/cnn.toml:
 # mismo Log-Mel (y por tanto la misma cache), mismos folds, semilla, pesos,
 # normalizacion, busqueda, seleccion, augmentation, condiciones y bootstrap.
 # Solo cambian [model] y [crnn]. La ejecucion se niega a arrancar si alguna
-# seccion compartida difiere de cnn_combined.toml (referenciado explicitamente
-# via [model] reference_cnn_config, ya que la CRNN original se compara con
-# cnn.toml por defecto -- ver cnn_experiment.config_consistency_checks).
+# seccion compartida difiere de cnn.toml (cnn_experiment.config_consistency_checks).
 #
 # No hay rutas personales: --data-root / --runs-root / --cache-root, o las
 # variables PULMONARY_DATA_ROOT / PULMONARY_RUNS_ROOT / PULMONARY_CACHE_ROOT.
 
 [model]
 architecture = "crnn"
-reference_cnn_config = "cnn_combined.toml"
 
 [crnn]
 in_channels = 1
@@ -35,7 +31,7 @@ head_hidden = 128
 expected_parameters = 1192482
 
 # ---------------------------------------------------------------------------
-# A partir de aqui: copia exacta de cnn_combined.toml.
+# A partir de aqui: copia exacta de cnn.toml.
 # ---------------------------------------------------------------------------
 
 [acoustic]
@@ -64,7 +60,6 @@ top_db = 80
 [splits]
 n_splits = 5
 random_state = 20260914
-stratify_by_dataset = true
 
 [weights]
 normalize_to_mean_one = true
@@ -115,7 +110,6 @@ criteria = [
 
 [evaluation]
 decision_threshold = 0.5
-report_by_source = true
 
 [augmentation]
 time_mask_max_frames = 20
@@ -142,20 +136,30 @@ dpi = 300
 formats = ["png", "pdf"]
 
 [paths]
-# Misma cache Log-Mel que la CNN combinada; resultados en <runs-root>/crnn/<run_id>/.
-default_data_root = "modeling/data/copd_vs_control_combined"
+# Misma cache Log-Mel que la CNN; resultados en <runs-root>/crnn/<run_id>/.
+default_data_root = "modeling/data/copd_vs_control"
 default_runs_root = "modeling/runs"
 default_cache_root = "modeling/cache/logmel"
 
-[datasets.COMBINED]
+[datasets.ICBHI]
 positive_diagnosis = "COPD"
-negative_diagnosis = "Control"
-negative_label_name = "Control"
+negative_diagnosis = "Healthy"
+negative_label_name = "Healthy"
+
+[datasets.FRAIWAN_Extended]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Normal"
+negative_label_name = "Normal"
 
 [experiments.main]
 description = "Condicion principal: no_dn, todas las grabaciones elegibles."
 
-[experiments.main.COMBINED]
+[experiments.main.ICBHI]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.main.FRAIWAN_Extended]
 condition = "main_no_dn"
 branch = "no_dn"
 dn_reliable_only = false
@@ -163,26 +167,50 @@ dn_reliable_only = false
 [experiments.denoising_ablation]
 description = "Ablacion no_dn vs dn, restringida a grabaciones dn_reliable=True."
 
-[[experiments.denoising_ablation.COMBINED]]
+[[experiments.denoising_ablation.ICBHI]]
 condition = "no_dn_reliable"
 branch = "no_dn"
 dn_reliable_only = true
 
-[[experiments.denoising_ablation.COMBINED]]
+[[experiments.denoising_ablation.ICBHI]]
 condition = "dn_reliable"
 branch = "dn"
 dn_reliable_only = true
 
-[experiments.augmentation_ablation]
-description = "Ablacion sin/con SpecAugment sobre main_no_dn, mismos pacientes y folds."
-
-[[experiments.augmentation_ablation.COMBINED]]
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
 condition = "main_no_dn"
 branch = "no_dn"
 dn_reliable_only = false
 reused_from_main = true
 
-[[experiments.augmentation_ablation.COMBINED]]
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[experiments.augmentation_ablation]
+description = "Ablacion sin/con SpecAugment sobre main_no_dn, mismos pacientes y folds."
+
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.ICBHI]]
+condition = "main_no_dn_aug"
+branch = "no_dn"
+dn_reliable_only = false
+augment = true
+hyperparameters_from = "main_no_dn"
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
+condition = "main_no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.augmentation_ablation.FRAIWAN_Extended]]
 condition = "main_no_dn_aug"
 branch = "no_dn"
 dn_reliable_only = false

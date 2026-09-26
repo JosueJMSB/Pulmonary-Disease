@@ -67,7 +67,7 @@ from pathlib import Path
 from . import data as dmod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+CONFIGS_DIR = dmod.OOF_V1_CONFIGS_DIR
 
 MODELS = ("svm_rbf", "cnn", "crnn")
 CONFIG_NAMES = {

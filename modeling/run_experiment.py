@@ -8,7 +8,7 @@
         --model cnn --dataset all --experiment all --device cuda:0 \
         --data-root <ruta> --runs-root <ruta> --cache-root <ruta>
 
-``--model cnn`` carga ``configs/cnn.toml`` y despacha a
+``--model cnn`` carga ``configs/oof_v1/cnn.toml`` y despacha a
 ``modeling.cnn_experiment``; ``--model svm_rbf`` sigue exactamente el flujo de
 este archivo. No hay rutas personales: ``--data-root``/``--runs-root``/
 ``--cache-root``, o las variables ``PULMONARY_DATA_ROOT`` /
@@ -116,7 +116,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
     parser.add_argument(
         "--dataset", choices=DATASET_CHOICES, required=True,
-        help="COMBINED requiere un --config con [datasets.COMBINED] (ver configs/*_combined.toml).",
+        help="COMBINED requiere un --config con [datasets.COMBINED] (ver configs/<protocolo>/*_combined.toml).",
     )
     parser.add_argument(
         "--experiment", choices=EXPERIMENT_CHOICES, required=True,
@@ -143,8 +143,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--config", type=Path, default=None,
-        help="Ruta alternativa al TOML (por defecto configs/svm_rbf.toml, configs/cnn.toml "
-             "o configs/crnn.toml segun --model).",
+        help="Ruta alternativa al TOML (por defecto configs/oof_v1/svm_rbf.toml, "
+             "configs/oof_v1/cnn.toml o configs/oof_v1/crnn.toml segun --model).",
     )
     parser.add_argument("--dry-run", action="store_true", help="Valida formas, hashes, conteos y folds; no entrena.")
     parser.add_argument(

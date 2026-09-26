@@ -60,7 +60,7 @@ def extract_segment_features(segment: np.ndarray, cfg: dict) -> np.ndarray:
     """Vector de 188 caracteristicas para un solo segmento de 20000 muestras.
 
     ``cfg`` es el diccionario ``acoustic``/``logmel``/``mfcc`` ya resuelto de
-    ``configs/svm_rbf.toml`` (ver ``modeling.data.load_config``).
+    ``configs/oof_v1/svm_rbf.toml`` (ver ``modeling.data.load_config``).
     """
     segment = np.asarray(segment, dtype=np.float64)
     expected = int(cfg["acoustic"]["segment_length"])

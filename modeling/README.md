@@ -44,7 +44,7 @@ pip install -r requirements-modeling.txt
 
 ```text
 modeling/
-├── configs/svm_rbf.toml     Todos los parametros del experimento
+├── configs/oof_v1/svm_rbf.toml     Todos los parametros del experimento original
 ├── features/
 │   ├── logmel.py            STFT compartida, log-mel, MFCC/delta/delta2
 │   └── acoustic.py          8 descriptores acusticos por trama
@@ -102,7 +102,7 @@ Flags utiles:
 | `denoising_ablation` | FRAIWAN_Extended | `dn` | dn | Todas |
 
 Ver el razonamiento completo (por que ICBHI_120 se excluye de la ablacion, por
-que Fraiwan reutiliza `main_no_dn`) en los comentarios de `configs/svm_rbf.toml`.
+que Fraiwan reutiliza `main_no_dn`) en los comentarios de `configs/oof_v1/svm_rbf.toml`.
 
 ### Salidas de una ejecucion
 
@@ -181,7 +181,7 @@ despues la version exacta instalada en `requirements-cnn.txt`.
 
 ```text
 modeling/
-├── configs/cnn.toml         Arquitectura, entrenamiento, busqueda, augmentation, condiciones
+├── configs/oof_v1/cnn.toml         Arquitectura, entrenamiento, busqueda, augmentation, condiciones
 ├── models/cnn.py            Red, normalizacion, SpecAugment, entrenamiento, fold, checkpoints
 ├── cnn_experiment.py        Orquestacion de --model cnn (runs, resumen, modelo final)
 └── data.py                  + cache Log-Mel por dataset/rama (sin dependencia de torch)
@@ -325,7 +325,7 @@ clinica de crepitantes o sibilancias**.
 
 ```text
 modeling/
-├── configs/crnn.toml        [model] architecture = "crnn", [crnn] y copia exacta del protocolo de cnn.toml
+├── configs/oof_v1/crnn.toml        [model] architecture = "crnn", [crnn] y copia exacta del protocolo de cnn.toml
 ├── models/crnn.py           Solo la red (CopdCRNN, TemporalAttention)
 └── crnn_experiment.py       --model crnn: validaciones propias y delega en cnn_experiment
 ```

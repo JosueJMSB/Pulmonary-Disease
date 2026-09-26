@@ -1,6 +1,6 @@
 # Configuracion versionada de la CNN 2D propia (PLAN-CNN.md).
 #
-# [acoustic] y [logmel] son copia exacta de configs/svm_rbf.toml: la CNN usa la
+# [acoustic] y [logmel] son copia exacta de oof_v1/svm_rbf.toml: la CNN usa la
 # misma STFT y el mismo Log-Mel intermedio cuyos resumenes alimentan a la SVM.
 # --dry-run verifica que ambas copias sigan siendo identicas.
 #

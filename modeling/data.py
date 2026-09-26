@@ -20,7 +20,10 @@ import pandas as pd
 from . import features as feat
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "svm_rbf.toml"
+CONFIGS_ROOT = Path(__file__).resolve().parent / "configs"
+OOF_V1_CONFIGS_DIR = CONFIGS_ROOT / "oof_v1"
+FOLD_AWARE_V2_CONFIGS_DIR = CONFIGS_ROOT / "fold_aware_v2"
+DEFAULT_CONFIG_PATH = OOF_V1_CONFIGS_DIR / "svm_rbf.toml"
 BRANCHES = ("no_dn", "dn")
 
 
@@ -61,7 +64,7 @@ def resolve_cache_root(cli_value: str | Path | None, cfg: dict) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Condiciones por experimento (configs/svm_rbf.toml -> [experiments.*])
+# Condiciones por experimento (configs/oof_v1/svm_rbf.toml -> [experiments.*])
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -427,8 +430,8 @@ def compute_sample_weights(segments: pd.DataFrame) -> np.ndarray:
 # No importa torch: el entorno de la SVM sigue funcionando sin PyTorch.
 # ---------------------------------------------------------------------------
 
-CNN_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "cnn.toml"
-CRNN_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "crnn.toml"
+CNN_CONFIG_PATH = OOF_V1_CONFIGS_DIR / "cnn.toml"
+CRNN_CONFIG_PATH = OOF_V1_CONFIGS_DIR / "crnn.toml"
 LOGMEL_CONFIG_SECTIONS = ("acoustic", "logmel")
 NETWORK_ARCHITECTURES = ("cnn", "crnn")
 
