@@ -66,6 +66,49 @@ def patient_device_table(reference_data_root: Path, split: sp.HoldoutSplit) -> p
     return pd.DataFrame(rows)
 
 
+def collapsed_device_strata(
+    development: pd.DataFrame, n_splits: int
+) -> pd.Series:
+    """Estratos clase-dispositivo viables para ``n_splits``.
+
+    Primero conserva cada firma exacta. Las firmas con menos pacientes que
+    folds se agrupan, dentro de su misma clase, como ``OTHER_DEVICE_PATTERN``.
+    Si ni siquiera la suma de firmas raras de una clase alcanza ``n_splits``,
+    esa clase usa un unico estrato ``CLASS_ONLY``. Nunca se mezclan clases.
+    """
+    raw = (
+        development["target_label"].astype(str)
+        + ":"
+        + development["device_signature"].astype(str)
+    )
+    counts = raw.value_counts()
+    rare = set(counts[counts < int(n_splits)].index)
+    strata = raw.copy()
+    rare_mask = raw.isin(rare)
+    strata.loc[rare_mask] = (
+        development.loc[rare_mask, "target_label"].astype(str)
+        + ":OTHER_DEVICE_PATTERN"
+    )
+
+    collapsed_counts = strata.value_counts()
+    insufficient = set(
+        development.loc[
+            strata.map(collapsed_counts) < int(n_splits), "target_label"
+        ].astype(int)
+    )
+    for label in insufficient:
+        in_class = development["target_label"].astype(int) == int(label)
+        strata.loc[in_class] = f"{int(label)}:CLASS_ONLY"
+
+    final_counts = strata.value_counts()
+    if final_counts.empty or int(final_counts.min()) < int(n_splits):
+        raise ValueError(
+            "no se puede construir una estratificacion viable ni siquiera "
+            f"tras colapsar firmas raras: {final_counts.to_dict()}"
+        )
+    return strata
+
+
 def repeated_split_frame(
     original: sp.HoldoutSplit, devices: pd.DataFrame, seed: int
 ) -> pd.DataFrame:
@@ -81,17 +124,9 @@ def repeated_split_frame(
     )
     if development["device_signature"].isna().any():
         raise RuntimeError("faltan dispositivos en pacientes de development")
-    development["stratum"] = (
-        development["target_label"].astype(str)
-        + ":"
-        + development["device_signature"]
+    development["stratum"] = collapsed_device_strata(
+        development, original.n_splits
     )
-    counts = development["stratum"].value_counts()
-    if int(counts.min()) < original.n_splits:
-        raise ValueError(
-            "no se puede estratificar clase+dispositivo en 5 folds; "
-            f"estratos insuficientes: {counts[counts < original.n_splits].to_dict()}"
-        )
 
     development = development.sort_values("patient_uid").reset_index()
     splitter = StratifiedKFold(

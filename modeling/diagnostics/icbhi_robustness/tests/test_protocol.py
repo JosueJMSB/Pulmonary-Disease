@@ -5,7 +5,10 @@ import pandas as pd
 
 from modeling import splits as sp
 from modeling.diagnostics.icbhi_robustness.baselines import permutation_map
-from modeling.diagnostics.icbhi_robustness.build_splits import repeated_split_frame
+from modeling.diagnostics.icbhi_robustness.build_splits import (
+    collapsed_device_strata,
+    repeated_split_frame,
+)
 from modeling.diagnostics.icbhi_robustness.common import (
     EXPECTED_PIPELINE_IDS,
     load_protocol,
@@ -78,6 +81,24 @@ def test_repeated_split_preserves_outer_test_and_covers_development_once():
     ]
     assert set(development["inner_fold_group"]) == set(range(5))
     assert development.groupby("patient_uid")["inner_fold_group"].nunique().eq(1).all()
+
+
+def test_sparse_device_signatures_are_collapsed_without_mixing_classes():
+    development = pd.DataFrame(
+        {
+            "target_label": [0] * 10 + [1] * 10,
+            "device_signature": (
+                ["Meditron"] * 10
+                + ["AKGC417L"] * 4
+                + ["Meditron"] * 4
+                + ["AKGC417L|LittC2SE", "Litt3200|Meditron"]
+            ),
+        }
+    )
+    strata = collapsed_device_strata(development, n_splits=5)
+    assert strata.str.startswith(development["target_label"].astype(str) + ":").all()
+    assert int(strata.value_counts().min()) >= 5
+    assert (strata.iloc[10:] == "1:OTHER_DEVICE_PATTERN").all()
 
 
 def test_permutation_preserves_counts_and_has_both_classes_in_every_fold():

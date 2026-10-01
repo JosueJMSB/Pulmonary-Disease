@@ -18,7 +18,9 @@ muestrear las 20 configuraciones.
 
 - 5 semillas nuevas x 5 folds internos.
 - División siempre por paciente.
-- Estratificación conjunta por clase y firma de dispositivo.
+- Estratificación conjunta por clase y firma de dispositivo. Las firmas con
+  menos de cinco pacientes se agrupan dentro de su misma clase para que los
+  cinco folds sean factibles, sin mezclar clases ni excluir pacientes.
 - El mismo fold para los cuatro cofinalistas.
 - Normalización, pesos y denoising calculados únicamente con train.
 - Métricas agregadas segmento -> grabación -> paciente.

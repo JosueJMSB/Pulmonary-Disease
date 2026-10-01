@@ -2,7 +2,7 @@ protocol = "icbhi_robustness_v1"
 dataset = "ICBHI"
 n_splits = 5
 repetition_seeds = [20261001, 20261017, 20261103, 20261119, 20261205]
-stratification = "target_label+device_signature"
+stratification = "target_label+collapsed_device_signature"
 
 [paths]
 original_split_csv = "modeling/data/holdout_splits.csv"
