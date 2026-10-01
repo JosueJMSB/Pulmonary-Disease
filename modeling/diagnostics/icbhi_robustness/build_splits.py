@@ -116,6 +116,11 @@ def repeated_split_frame(
     development = table.loc[
         table["outer_role"] == sp.OUTER_ROLE_DEVELOPMENT
     ].copy()
+    # ``merge`` reconstruye el indice. Se conserva explicitamente la fila de
+    # la tabla maestra para escribir cada fold solamente sobre development;
+    # usar el indice posterior al merge podria alcanzar filas del test si los
+    # pacientes de ambos roles estan intercalados en el CSV.
+    development["_table_index"] = development.index.astype("int64")
     development = development.merge(
         devices,
         on=["patient_uid", "target_label"],
@@ -128,7 +133,7 @@ def repeated_split_frame(
         development, original.n_splits
     )
 
-    development = development.sort_values("patient_uid").reset_index()
+    development = development.sort_values("patient_uid").reset_index(drop=True)
     splitter = StratifiedKFold(
         n_splits=original.n_splits, shuffle=True, random_state=int(seed)
     )
@@ -137,9 +142,10 @@ def repeated_split_frame(
         splitter.split(development["patient_uid"], development["stratum"])
     ):
         fold_group.iloc[validation] = int(fold_id)
-    table.loc[development["index"], "inner_fold_group"] = fold_group.to_numpy(
-        dtype="int64"
-    )
+    table.loc[
+        development["_table_index"].to_numpy(dtype="int64"),
+        "inner_fold_group",
+    ] = fold_group.to_numpy(dtype="int64")
 
     columns = ["patient_uid", "outer_role", "inner_fold_group", "target_label"]
     original_test = (

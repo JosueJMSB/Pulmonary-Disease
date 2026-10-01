@@ -94,6 +94,22 @@ def test_repeated_split_accepts_numeric_dtype_change_without_changing_test():
     assert test["inner_fold_group"].astype(int).eq(-1).all()
 
 
+def test_repeated_split_never_writes_folds_into_interleaved_test_rows():
+    original, devices = synthetic_holdout()
+    shuffled = original.patient_table.sample(frac=1.0, random_state=77).reset_index(
+        drop=True
+    )
+    interleaved = sp.HoldoutSplit("ICBHI", shuffled, 5)
+    repeated = repeated_split_frame(interleaved, devices, 24680)
+    test = repeated.loc[repeated["outer_role"] == sp.OUTER_ROLE_TEST]
+    development = repeated.loc[
+        repeated["outer_role"] == sp.OUTER_ROLE_DEVELOPMENT
+    ]
+    assert set(test["patient_uid"]) == set(interleaved.blocked_test_patients())
+    assert test["inner_fold_group"].astype(int).eq(-1).all()
+    assert development["inner_fold_group"].astype(int).between(0, 4).all()
+
+
 def test_sparse_device_signatures_are_collapsed_without_mixing_classes():
     development = pd.DataFrame(
         {
