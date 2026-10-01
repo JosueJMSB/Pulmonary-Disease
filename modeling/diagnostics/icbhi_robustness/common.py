@@ -216,8 +216,14 @@ def load_architecture_config(protocol: Protocol, pipeline: Pipeline) -> dict:
         raise RuntimeError(f"{pipeline.id}: outer_test debe permanecer false")
     if cfg.get("final_model", {}).get("enabled") is not False:
         raise RuntimeError(f"{pipeline.id}: final_model debe permanecer false")
+    architecture_sections = (
+        ("cnn",) if pipeline.architecture == "cnn" else ("model", "crnn")
+    )
+    fingerprint_sections = (
+        NN_CONFIG_FINGERPRINT_SECTIONS + architecture_sections
+    )
     relevant = {
-        key: cfg[key] for key in NN_CONFIG_FINGERPRINT_SECTIONS if key in cfg
+        key: cfg[key] for key in fingerprint_sections if key in cfg
     }
     payload = json.dumps(
         relevant, sort_keys=True, separators=(",", ":"), default=str

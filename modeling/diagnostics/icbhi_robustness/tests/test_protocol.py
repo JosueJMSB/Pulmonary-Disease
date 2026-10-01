@@ -11,6 +11,7 @@ from modeling.diagnostics.icbhi_robustness.build_splits import (
 )
 from modeling.diagnostics.icbhi_robustness.common import (
     EXPECTED_PIPELINE_IDS,
+    load_architecture_config,
     load_protocol,
 )
 
@@ -66,6 +67,13 @@ def test_protocol_freezes_exactly_four_cofinalists():
     assert tuple(pipeline.id for pipeline in protocol.pipelines) == EXPECTED_PIPELINE_IDS
     assert protocol.n_splits == 5
     assert len(protocol.seeds) == 5
+
+
+def test_current_architecture_configs_match_frozen_source_fingerprints():
+    protocol = load_protocol()
+    for pipeline in protocol.pipelines:
+        cfg = load_architecture_config(protocol, pipeline)
+        assert cfg["protocol"] == "holdout_cv_v3"
 
 
 def test_repeated_split_preserves_outer_test_and_covers_development_once():
