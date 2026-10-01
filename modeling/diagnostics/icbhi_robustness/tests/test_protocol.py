@@ -96,7 +96,11 @@ def test_sparse_device_signatures_are_collapsed_without_mixing_classes():
         }
     )
     strata = collapsed_device_strata(development, n_splits=5)
-    assert strata.str.startswith(development["target_label"].astype(str) + ":").all()
+    expected_prefixes = development["target_label"].astype(str) + ":"
+    assert all(
+        str(value).startswith(prefix)
+        for value, prefix in zip(strata, expected_prefixes, strict=True)
+    )
     assert int(strata.value_counts().min()) >= 5
     assert (strata.iloc[10:] == "1:OTHER_DEVICE_PATTERN").all()
 
