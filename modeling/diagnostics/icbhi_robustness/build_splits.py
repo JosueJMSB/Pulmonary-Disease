@@ -154,8 +154,17 @@ def repeated_split_frame(
         .sort_values("patient_uid")
         .reset_index(drop=True)
     )
-    if not original_test.equals(repeated_test):
-        raise RuntimeError("el holdout externo cambio al construir los folds diagnosticos")
+    try:
+        pd.testing.assert_frame_equal(
+            original_test,
+            repeated_test,
+            check_dtype=False,
+            check_exact=True,
+        )
+    except AssertionError as exc:
+        raise RuntimeError(
+            "el holdout externo cambio al construir los folds diagnosticos"
+        ) from exc
     sp.verify_holdout_split(
         table, original.n_splits, context=f"{DATASET}/{seed_tag(seed)}"
     )

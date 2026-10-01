@@ -83,6 +83,17 @@ def test_repeated_split_preserves_outer_test_and_covers_development_once():
     assert development.groupby("patient_uid")["inner_fold_group"].nunique().eq(1).all()
 
 
+def test_repeated_split_accepts_numeric_dtype_change_without_changing_test():
+    original, devices = synthetic_holdout()
+    original.patient_table["inner_fold_group"] = original.patient_table[
+        "inner_fold_group"
+    ].astype(float)
+    repeated = repeated_split_frame(original, devices, 54321)
+    test = repeated.loc[repeated["outer_role"] == sp.OUTER_ROLE_TEST]
+    assert set(test["patient_uid"]) == set(original.blocked_test_patients())
+    assert test["inner_fold_group"].astype(int).eq(-1).all()
+
+
 def test_sparse_device_signatures_are_collapsed_without_mixing_classes():
     development = pd.DataFrame(
         {
