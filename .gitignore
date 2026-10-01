@@ -106,6 +106,7 @@ modeling/data/**/*_staging_*/
 # constancia de la procedencia (hashes, commit, config) dentro de cada run.
 modeling/cache/
 modeling/runs/
+modeling/runtime/
 .runtime_cache/
 *.joblib
 # Checkpoints de la CNN (model_fold.pt, final_model.pt) y sus temporales.

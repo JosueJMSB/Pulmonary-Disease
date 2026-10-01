@@ -1,0 +1,88 @@
+protocol = "icbhi_robustness_v1"
+dataset = "ICBHI"
+n_splits = 5
+repetition_seeds = [20261001, 20261017, 20261103, 20261119, 20261205]
+stratification = "target_label+device_signature"
+
+[paths]
+original_split_csv = "modeling/data/holdout_splits.csv"
+original_split_manifest = "modeling/data/holdout_splits_manifest.json"
+cnn_config = "modeling/configs/holdout_final/cnn_v3.toml"
+crnn_config = "modeling/configs/holdout_final/crnn_v3.toml"
+
+[evaluation]
+decision_threshold = 0.5
+negative_label_name = "Healthy"
+
+[device_baseline]
+enabled = true
+classifier = "logistic_regression"
+C = 1.0
+class_weight = "balanced"
+solver = "liblinear"
+
+[permutation_control]
+enabled = true
+pipeline_id = "cnn_no_dn"
+max_shuffle_attempts = 10000
+
+[[pipelines]]
+id = "cnn_no_dn"
+architecture = "cnn"
+condition = "no_dn"
+branch = "no_dn"
+augment = false
+source_run_id = "20260926T193325Z_141939"
+source_config_index = 1
+source_median_best_epoch = 17
+source_config_sha256 = "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358"
+lr = 0.0001
+dropout = 0.3
+weight_decay = 0.001
+batch_size = 64
+
+[[pipelines]]
+id = "cnn_dn"
+architecture = "cnn"
+condition = "dn"
+branch = "dn"
+augment = false
+source_run_id = "20260926T193325Z_141939"
+source_config_index = 0
+source_median_best_epoch = 9
+source_config_sha256 = "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358"
+lr = 0.0001
+dropout = 0.3
+weight_decay = 0.00001
+batch_size = 16
+
+[[pipelines]]
+id = "crnn_dn"
+architecture = "crnn"
+condition = "dn"
+branch = "dn"
+augment = false
+source_run_id = "20260927T024714Z_f0950f"
+source_config_index = 8
+source_median_best_epoch = 7
+source_config_sha256 = "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f"
+lr = 0.0003
+dropout = 0.3
+weight_decay = 0.0001
+batch_size = 64
+
+[[pipelines]]
+id = "crnn_no_dn_aug"
+architecture = "crnn"
+condition = "no_dn_aug"
+branch = "no_dn"
+augment = true
+source_run_id = "20260927T024714Z_f0950f"
+source_config_index = 5
+source_median_best_epoch = 10
+source_config_sha256 = "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f"
+lr = 0.0001
+dropout = 0.4
+weight_decay = 0.001
+batch_size = 64
+
