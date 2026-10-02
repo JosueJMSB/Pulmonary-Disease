@@ -265,6 +265,25 @@ def metric_fn_recall_negative(threshold: float = 0.0):
     return _fn
 
 
+def metric_fn_accuracy(threshold: float = 0.0):
+    def _fn(y_true, y_score):
+        return accuracy_score(y_true, scores_to_predictions(y_score, threshold))
+    return _fn
+
+
+def metric_fn_macro_f1(threshold: float = 0.0):
+    def _fn(y_true, y_score):
+        y_pred = scores_to_predictions(y_score, threshold)
+        return f1_score(y_true, y_pred, average="macro", zero_division=0)
+    return _fn
+
+
+def metric_fn_min_class_recall(threshold: float = 0.0):
+    def _fn(y_true, y_score):
+        return min_class_recall(y_true, scores_to_predictions(y_score, threshold))
+    return _fn
+
+
 # ---------------------------------------------------------------------------
 # Metricas, reportes, matrices de confusion e IC bootstrap por fuente
 # (``source_dataset``): mismas funciones de arriba, una vez por cada valor

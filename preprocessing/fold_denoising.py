@@ -82,8 +82,32 @@ calculados:
     python fold_denoising.py --protocol holdout-v3 --stage cv \
         --dataset-scope ICBHI --fold-id 0
 
-No genera todavia ningun preprocesamiento del 80 % completo ni material
-destinado a la prueba externa: esas etapas pertenecen a una entrega posterior.
+Etapa final (``--protocol holdout-v3 --stage final``, PLAN-ENTRENAMIENTO-FINAL.md,
+CORRECIONES.md): ya no hay fold interno -se usa el 100 % de desarrollo, sin
+dividir- y por primera vez SI se procesa la prueba externa (misma banda
+pasante, mismo denoising y mismo ``TARGET_RMS``, calibrados UNICAMENTE con
+desarrollo; la prueba externa nunca entra en esa calibracion, solo se le
+aplican los parametros ya fijados). ``--fold-id`` no se admite en esta etapa.
+
+Esta etapa ya constituye acceso a la prueba externa, asi que la autorizacion
+se valida COMPLETA -protocolo, ``status = "approved"``, hashes del split,
+hash y contenido del artefacto de procedencia (``--source-runs-root``) y, para
+ICBHI, revision por dispositivo- ANTES de tocar ningun WAV
+(``verify_final_access_authorized``); cambiar solo ``status`` nunca basta por
+si solo. Si ya existe una salida final que coincide exactamente con el split,
+la seleccion y el codigo de ``preprocessing/`` actuales, se reutiliza sin
+reprocesar audio; si existe pero algo cambio, se rechaza explicitamente en vez
+de reemplazarla en silencio (``final_stage_matches_current_inputs``):
+
+    preprocessing/data/holdout_calibrated/<dataset_scope>/final/
+    |-- segments.csv             # role = "train" (desarrollo) o "test" (prueba externa)
+    |-- segments_no_dn.npy
+    |-- segments_dn.npy
+    |-- preprocessing_params.json
+    `-- manifest.json
+
+    python fold_denoising.py --protocol holdout-v3 --stage final \
+        --dataset-scope ICBHI
 """
 
 from __future__ import annotations
@@ -132,10 +156,17 @@ REQUIRED_SEGMENT_COLUMNS = (
 # Protocolo holdout-v3 (ver docstring del modulo).
 PROTOCOL_FOLD_AWARE_V2 = "fold-aware-v2"
 PROTOCOL_HOLDOUT_V3 = "holdout-v3"
-HOLDOUT_STAGES = ("cv",)
+HOLDOUT_STAGES = ("cv", "final")
+STAGE_FINAL = "final"
+# Etapas que admite run_fold_holdout_v3 (por fold interno): SOLO "cv". "final"
+# no tiene fold y se sirve con run_final_v1/main_holdout_v3, nunca con esta
+# funcion -distinto de HOLDOUT_STAGES, que son los --stage validos del CLI-.
+CV_FOLD_STAGES = ("cv",)
 HOLDOUT_OUTPUT_ROOT = cfg.PREPROC / "data" / "holdout_calibrated"
 DEFAULT_HOLDOUT_SPLIT_CSV = cfg.ROOT / "modeling" / "data" / "holdout_splits.csv"
 DEFAULT_HOLDOUT_SPLIT_MANIFEST = cfg.ROOT / "modeling" / "data" / "holdout_splits_manifest.json"
+DEFAULT_SELECTION_CONFIG = cfg.ROOT / "modeling" / "configs" / "final_test" / "selected_pipelines.toml"
+DEFAULT_SOURCE_RUNS_ROOT = cfg.ROOT / "modeling" / "runs"
 HOLDOUT_SPLIT_COLUMNS = (
     "dataset_scope", "patient_uid", "source_dataset", "target_label",
     "outer_role", "inner_fold_group", "calibration_patient",
@@ -143,6 +174,15 @@ HOLDOUT_SPLIT_COLUMNS = (
 OUTER_ROLE_DEVELOPMENT = "development"
 OUTER_ROLE_TEST = "test"
 OUTER_TEST_FOLD_GROUP = -1
+ROLE_TRAIN = "train"
+ROLE_TEST = "test"
+
+# Conteos esperados de la etapa final (desarrollo, prueba), PLAN-ENTRENAMIENTO-FINAL.md.
+EXPECTED_FINAL_COUNTS = {
+    "ICBHI": {"train": 72, "test": 18},
+    "FRAIWAN_Extended": {"train": 34, "test": 9},
+    "COMBINED": {"train": 106, "test": 27},
+}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -151,14 +191,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "(protocolo fold-aware v2, o holdout-v3 sobre el 80 % de desarrollo)."
     )
     parser.add_argument("--dataset-scope", choices=DATASET_SCOPES, required=True)
-    parser.add_argument("--fold-id", type=int, required=True)
+    parser.add_argument(
+        "--fold-id", type=int, default=None,
+        help="Obligatorio salvo con --protocol holdout-v3 --stage final (ahi no se admite: se usa "
+             "el 100%% del desarrollo, sin folds internos).",
+    )
     parser.add_argument(
         "--protocol", choices=(PROTOCOL_FOLD_AWARE_V2, PROTOCOL_HOLDOUT_V3), default=PROTOCOL_FOLD_AWARE_V2,
         help="fold-aware-v2 (por defecto) o holdout-v3.",
     )
     parser.add_argument(
         "--stage", choices=HOLDOUT_STAGES, default=None,
-        help="Solo holdout-v3: 'cv' genera los folds internos de validacion cruzada (unica etapa de esta entrega).",
+        help="Solo holdout-v3: 'cv' (por defecto) genera los folds internos de validacion cruzada; "
+             "'final' procesa el 100%% del desarrollo y, si la seleccion esta aprobada, la prueba externa.",
     )
     parser.add_argument("--patient-folds-csv", type=Path, default=DEFAULT_PATIENT_FOLDS_CSV)
     parser.add_argument("--patient-folds-manifest", type=Path, default=DEFAULT_PATIENT_FOLDS_MANIFEST)
@@ -171,14 +216,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Solo holdout-v3. Por defecto {DEFAULT_HOLDOUT_SPLIT_MANIFEST}.",
     )
     parser.add_argument(
+        "--selection-config", type=Path, default=None,
+        help=f"Solo --stage final: seleccion congelada que autoriza el acceso a la prueba externa. "
+             f"Por defecto {DEFAULT_SELECTION_CONFIG}.",
+    )
+    parser.add_argument(
+        "--source-runs-root", type=Path, default=None,
+        help=f"Solo --stage final: raiz desde la que se resuelve 'source_artifact' de la seleccion "
+             f"congelada (igual que modeling.final_training.run). Por defecto {DEFAULT_SOURCE_RUNS_ROOT}.",
+    )
+    parser.add_argument(
         "--output-root", type=Path, default=None,
         help=f"Por defecto {OUTPUT_ROOT} (fold-aware-v2) o {HOLDOUT_OUTPUT_ROOT} (holdout-v3).",
     )
     args = parser.parse_args(argv)
     if args.protocol == PROTOCOL_HOLDOUT_V3:
         args.stage = args.stage or "cv"
-    elif args.stage is not None or args.split_csv is not None or args.split_manifest is not None:
-        parser.error("--stage, --split-csv y --split-manifest solo aplican con --protocol holdout-v3")
+        if args.stage == STAGE_FINAL:
+            if args.fold_id is not None:
+                parser.error("--fold-id no se admite con --stage final (se usa el 100% del desarrollo, sin folds internos)")
+        else:
+            if args.fold_id is None:
+                parser.error("--fold-id es obligatorio con --protocol holdout-v3 --stage cv")
+            if args.selection_config is not None:
+                parser.error("--selection-config solo aplica con --stage final")
+            if args.source_runs_root is not None:
+                parser.error("--source-runs-root solo aplica con --stage final")
+    else:
+        if (args.stage is not None or args.split_csv is not None or args.split_manifest is not None
+                or args.selection_config is not None or args.source_runs_root is not None):
+            parser.error(
+                "--stage, --split-csv, --split-manifest, --selection-config y --source-runs-root "
+                "solo aplican con --protocol holdout-v3"
+            )
+        if args.fold_id is None:
+            parser.error("--fold-id es obligatorio con --protocol fold-aware-v2")
     return args
 
 
@@ -711,6 +783,448 @@ def _phase2_input_digest(scope_meta: pd.DataFrame) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# Etapa final (--stage final): 100 % de desarrollo, SIN fold interno, y por
+# primera vez se procesa tambien la prueba externa (nunca para calibrar).
+# ---------------------------------------------------------------------------
+
+def load_selection_pipeline(selection_config_path: Path, dataset_scope: str) -> tuple[dict, dict]:
+    """``(selection, pipeline)``: el TOML completo y la seccion
+    ``[pipelines.<dataset_scope>]``, leidos directamente con ``tomllib``.
+
+    Lectura autosuficiente: este script NUNCA importa
+    ``modeling.final_training.selection`` (mantiene a ``preprocessing/`` sin
+    dependencias del paquete ``modeling``), pero valida exactamente los mismos
+    campos antes de tocar cualquier audio -ver ``verify_final_access_authorized``-.
+    """
+    import tomllib
+
+    selection_config_path = Path(selection_config_path)
+    if not selection_config_path.is_file():
+        raise FileNotFoundError(f"no existe la seleccion congelada: {selection_config_path}")
+    with open(selection_config_path, "rb") as fh:
+        selection = tomllib.load(fh)
+    if selection.get("protocol") != "holdout_final_v1":
+        raise ValueError(f"{selection_config_path}: protocol={selection.get('protocol')!r}, se esperaba 'holdout_final_v1'")
+    try:
+        pipeline = selection["pipelines"][dataset_scope]
+    except KeyError:
+        raise ValueError(f"{selection_config_path}: no hay [pipelines.{dataset_scope}]") from None
+    return selection, pipeline
+
+
+def load_final_selection_status(selection_config_path: Path, dataset_scope: str) -> str:
+    """``status`` (``approved``/``pending_device_review``/``blocked``) del
+    pipeline de ``dataset_scope``. Solo para dejar constancia en el manifiesto
+    -la autorizacion real la hace ``verify_final_access_authorized``-."""
+    _selection, pipeline = load_selection_pipeline(selection_config_path, dataset_scope)
+    return str(pipeline.get("status"))
+
+
+def verify_final_access_authorized(
+    selection_config_path: Path, dataset_scope: str, split_csv: Path, split_manifest: Path, source_runs_root: Path,
+) -> dict:
+    """Autorizacion COMPLETA antes de leer cualquier audio de ``--stage final``
+    (CORRECIONES.md seccion 2): protocolo, estado ``approved``, split congelado
+    sin cambios, artefacto de procedencia (hash y contenido coherente con este
+    dataset/condicion/rama) y, para ICBHI, revision por dispositivo registrada.
+    Cambiar UNICAMENTE ``status`` a ``"approved"`` nunca basta por si solo: si
+    cualquiera de las demas condiciones falla, esta funcion sigue rechazando el
+    acceso. Devuelve la seccion ``[pipelines.<dataset_scope>]`` ya validada."""
+    selection, pipeline = load_selection_pipeline(selection_config_path, dataset_scope)
+
+    status = str(pipeline.get("status"))
+    if status != "approved":
+        raise RuntimeError(
+            f"{dataset_scope}: la seleccion en {selection_config_path} tiene status={status!r}, no 'approved'; "
+            "esta etapa ya constituye acceso a la prueba externa y permanece bloqueada"
+        )
+
+    split_section = selection.get("split", {})
+    for path, expected_key, label in (
+        (split_csv, "csv_sha256", "holdout_splits.csv"), (split_manifest, "manifest_sha256", "holdout_splits_manifest.json"),
+    ):
+        expected = split_section.get(expected_key)
+        actual = u.file_sha256(Path(path))
+        if not expected or actual != expected:
+            raise RuntimeError(
+                f"{dataset_scope}: sha256 {actual[:12]}... de {label} no coincide con el congelado en "
+                f"{selection_config_path} ({str(expected)[:12]}...); el split 80/20 oficial cambio, o la "
+                "seleccion quedo desincronizada de el"
+            )
+
+    source_artifact = pipeline.get("source_artifact")
+    source_artifact_sha256 = pipeline.get("source_artifact_sha256")
+    if not source_artifact or not source_artifact_sha256:
+        raise RuntimeError(f"{dataset_scope}: faltan source_artifact/source_artifact_sha256 en la seleccion")
+    artifact_path = Path(source_runs_root) / source_artifact
+    if not artifact_path.is_file():
+        raise RuntimeError(
+            f"{dataset_scope}: no se encuentra el artefacto de procedencia declarado ({artifact_path}); "
+            "verifique source_artifact/--source-runs-root"
+        )
+    actual_artifact_hash = u.file_sha256(artifact_path)
+    if actual_artifact_hash != source_artifact_sha256:
+        raise RuntimeError(
+            f"{dataset_scope}: sha256 {actual_artifact_hash[:12]}... de {artifact_path} no coincide con "
+            f"source_artifact_sha256 ({source_artifact_sha256[:12]}...)"
+        )
+    best = json.loads(artifact_path.read_text(encoding="utf-8"))
+    for key, expected in (
+        ("protocol", "holdout_cv_v3"), ("model", pipeline.get("architecture")), ("dataset", dataset_scope),
+        ("condition", pipeline.get("condition")), ("branch", pipeline.get("branch")),
+    ):
+        if best.get(key) != expected:
+            raise RuntimeError(f"{dataset_scope}: {artifact_path} tiene {key}={best.get(key)!r}, se esperaba {expected!r}")
+    declared_config_index = pipeline.get("source_config_index")
+    if int(best.get("config_index", -1)) != int(declared_config_index if declared_config_index is not None else -2):
+        raise RuntimeError(
+            f"{dataset_scope}: {artifact_path} tiene config_index={best.get('config_index')!r}, "
+            f"se esperaba {declared_config_index!r}"
+        )
+    stored_hp = best.get("hyperparameters", {})
+    declared_hp = pipeline.get("hyperparameters", {})
+    for hp_key in ("lr", "dropout", "weight_decay", "batch_size"):
+        if float(stored_hp.get(hp_key, float("nan"))) != float(declared_hp.get(hp_key, float("nan"))):
+            raise RuntimeError(
+                f"{dataset_scope}: {artifact_path} hyperparameters.{hp_key}={stored_hp.get(hp_key)!r} "
+                f"no coincide con {declared_hp.get(hp_key)!r} de la seleccion"
+            )
+    median_epoch = best.get("median_best_epoch")
+    declared_epochs = pipeline.get("epochs")
+    if median_epoch is not None and int(median_epoch) != int(declared_epochs if declared_epochs is not None else -1):
+        raise RuntimeError(
+            f"{dataset_scope}: {artifact_path} median_best_epoch={median_epoch} no coincide con "
+            f"epochs={declared_epochs!r} de la seleccion"
+        )
+
+    if dataset_scope == "ICBHI":
+        review_path_str = pipeline.get("device_review_path") or ""
+        review_sha = pipeline.get("device_review_sha256") or ""
+        if not review_path_str or not review_sha:
+            raise RuntimeError(f"{dataset_scope}: status='approved' exige device_review_path/device_review_sha256 registrados")
+        review_path = Path(review_path_str)
+        if not review_path.is_absolute():
+            review_path = cfg.ROOT / review_path
+        if not review_path.is_file():
+            raise RuntimeError(f"{dataset_scope}: no existe device_review_path: {review_path}")
+        actual_review_hash = u.file_sha256(review_path)
+        if actual_review_hash != review_sha:
+            raise RuntimeError(f"{dataset_scope}: sha256 de device_review_path no coincide con device_review_sha256")
+
+    return pipeline
+
+
+def _final_pipeline_fingerprint(pipeline: dict) -> str:
+    """Huella de la seccion ``[pipelines.<dataset_scope>]`` YA autorizada:
+    sirve para decidir si una salida final ya publicada se puede reutilizar
+    sin reprocesar audio (ver ``final_stage_matches_current_inputs``)."""
+    payload = json.dumps(pipeline, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+PREPROCESSING_CODE_FILES = ("fold_denoising.py", "phase3_cleaning.py", "phase4_temporal.py", "utils.py", "config.py")
+
+
+def preprocessing_code_fingerprint() -> str:
+    """sha256 de los modulos de ``preprocessing/`` que determinan la salida de
+    ``--stage final``: cambiar cualquiera de ellos invalida la reutilizacion
+    idempotente de una salida final ya publicada."""
+    here = Path(__file__).resolve().parent
+    parts = []
+    for name in PREPROCESSING_CODE_FILES:
+        content = (here / name).read_bytes().replace(b"\r\n", b"\n")
+        parts.append(f"{name}:{hashlib.sha256(content).hexdigest()}")
+    return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()
+
+
+def final_stage_matches_current_inputs(
+    target_dir: Path, *, split_csv: Path, split_manifest: Path, pipeline_fingerprint: str,
+) -> bool:
+    """La salida final ya publicada en ``target_dir`` se calculo con EXACTAMENTE
+    el split, la seleccion y el codigo actuales: se puede reutilizar sin tocar
+    ningun audio. ``False`` si no existe o si cualquiera de los tres cambio
+    -nunca se decide a medias-."""
+    manifest_path = target_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return (
+        manifest.get("holdout_splits_csv_sha256") == u.file_sha256(split_csv)
+        and manifest.get("holdout_splits_manifest_sha256") == u.file_sha256(split_manifest)
+        and manifest.get("selection_pipeline_fingerprint") == pipeline_fingerprint
+        and manifest.get("code_sha256") == preprocessing_code_fingerprint()
+    )
+
+
+def load_holdout_final_roles(csv_path: Path, manifest_path: Path, dataset_scope: str) -> pd.DataFrame:
+    """``patient_uid`` -> rol para TODO ``dataset_scope`` en la etapa final:
+    ``train`` para el 100 % de desarrollo (no se divide en folds internos) y
+    ``test`` para la prueba externa -que, a diferencia de ``load_holdout_cv_roles``,
+    aqui SI aparece, porque esta es la etapa que por fin la procesa-."""
+    csv_path, manifest_path = Path(csv_path), Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    actual_hash = u.file_sha256(csv_path)
+    expected_hash = manifest.get("holdout_splits_csv_sha256")
+    if actual_hash != expected_hash:
+        raise ValueError(
+            f"{csv_path}: sha256 {actual_hash[:12]}... no coincide con el manifiesto "
+            f"{manifest_path} ({str(expected_hash)[:12]}...); regenere con "
+            "'python -m modeling.build_master_folds --protocol holdout-v3'"
+        )
+    if manifest.get("protocol") != PROTOCOL_HOLDOUT_V3:
+        raise ValueError(f"{manifest_path}: protocol={manifest.get('protocol')!r}, se esperaba {PROTOCOL_HOLDOUT_V3!r}")
+
+    full = pd.read_csv(csv_path, dtype={"patient_uid": str, "source_dataset": str})
+    missing = set(HOLDOUT_SPLIT_COLUMNS) - set(full.columns)
+    if missing:
+        raise ValueError(f"{csv_path}: faltan columnas {sorted(missing)}")
+
+    table = full.loc[full["dataset_scope"] == dataset_scope].drop(columns="dataset_scope").reset_index(drop=True)
+    if table.empty:
+        raise ValueError(f"{csv_path}: no hay filas para dataset_scope={dataset_scope!r}")
+    table["calibration_patient"] = table["calibration_patient"].astype(bool)
+
+    unknown = set(table["outer_role"]) - {OUTER_ROLE_DEVELOPMENT, OUTER_ROLE_TEST}
+    if unknown:
+        raise ValueError(f"{dataset_scope}: outer_role desconocido: {sorted(unknown)}")
+    development = table.loc[table["outer_role"] == OUTER_ROLE_DEVELOPMENT]
+    test = table.loc[table["outer_role"] == OUTER_ROLE_TEST]
+    if development.empty or test.empty:
+        raise ValueError(f"{dataset_scope}: desarrollo y prueba deben tener pacientes ({len(development)}/{len(test)})")
+    if not (test["inner_fold_group"] == OUTER_TEST_FOLD_GROUP).all():
+        raise ValueError(
+            f"{dataset_scope}: hay pacientes de prueba con inner_fold_group distinto de {OUTER_TEST_FOLD_GROUP}"
+        )
+
+    role = np.where(table["outer_role"].to_numpy() == OUTER_ROLE_DEVELOPMENT, ROLE_TRAIN, ROLE_TEST)
+    roles = table.assign(role=role).reset_index(drop=True)
+    return roles
+
+
+def build_final_segment_inventory(
+    dataset_scope: str, scope_meta: pd.DataFrame, roles: pd.DataFrame,
+    dn_reliable_map: dict, dn_reason_map: dict, cycles_by_audio: dict,
+) -> pd.DataFrame:
+    """Igual que ``build_fold_segment_inventory``, pero sin fold interno: la
+    columna ``fold_id`` queda en ``-1`` (el mismo centinela que ya usa
+    ``inner_fold_group`` para "sin fold") y ``role`` es ``train``/``test``."""
+    role_by_patient = dict(zip(roles["patient_uid"], roles["role"]))
+    label_by_patient = dict(zip(roles["patient_uid"], roles["target_label"]))
+    calib_by_patient = dict(zip(roles["patient_uid"], roles["calibration_patient"]))
+    source_by_patient = dict(zip(roles["patient_uid"], roles["source_dataset"]))
+
+    rows = []
+    for _, r in scope_meta.iterrows():
+        audio_id, dataset, patient_uid = r["audio_id"], r["dataset"], r["patient_uid"]
+        n_samples = int(r["samples_out_actual"])
+        n = p4.segments_per_recording(n_samples, p4.WINDOW_SAMPLES, p4.HOP_SAMPLES)
+        tail = n_samples - ((n - 1) * p4.HOP_SAMPLES + p4.WINDOW_SAMPLES) if n > 0 else n_samples
+        label = int(label_by_patient[patient_uid])
+
+        for k in range(n):
+            start_sample = k * p4.HOP_SAMPLES
+            end_sample = start_sample + p4.WINDOW_SAMPLES
+            row = {
+                "segment_id": f"{audio_id}_{k:03d}", "audio_id": audio_id, "dataset": dataset,
+                "patient_uid": patient_uid, "diagnosis": r["diagnosis"], "device": r["device"],
+                "zone": r["zone"], "filter": r["filter"],
+                "start_sample": start_sample, "end_sample": end_sample,
+                "start_s": round(start_sample / cfg.TARGET_SR, 4), "end_s": round(end_sample / cfg.TARGET_SR, 4),
+                "tail_samples": int(tail), "segment_idx": k, "n_segments_in_recording": n,
+                "quality_status": r["quality_status"], "quality_reasons": r["quality_reasons"],
+                "calibration_patient": bool(calib_by_patient[patient_uid]),
+                "dn_reliable": dn_reliable_map[audio_id], "dn_flag_reason": dn_reason_map.get(audio_id, ""),
+                "fold_id": -1, "role": role_by_patient[patient_uid],
+                "target_label": label, "target_name": "COPD" if label == 1 else "Control",
+                "source_dataset": source_by_patient[patient_uid],
+            }
+            row.update(p4.cycle_classification(audio_id, cycles_by_audio, start_sample, end_sample, dataset))
+            rows.append(row)
+
+    inventory = pd.DataFrame(rows)
+    if inventory.empty:
+        raise ValueError(f"{dataset_scope}/final: la seleccion quedo vacia (0 segmentos)")
+    if inventory["segment_id"].duplicated().any():
+        raise ValueError(f"{dataset_scope}/final: segment_id duplicados")
+
+    inventory.insert(0, "task_array_index", np.arange(len(inventory), dtype=np.int64))
+    inventory.insert(1, "source_array_index", inventory["task_array_index"])
+    return inventory
+
+
+def verify_final_inventory_matches_roles(inventory: pd.DataFrame, roles: pd.DataFrame) -> None:
+    """La etapa final contiene exactamente a los pacientes de desarrollo
+    (``train``) y de prueba externa (``test``) del split, ni uno mas ni uno
+    menos, y solo esos dos roles."""
+    present = set(inventory["role"])
+    if present != {ROLE_TRAIN, ROLE_TEST}:
+        raise RuntimeError(f"la etapa final debe tener exactamente los roles train y test: {sorted(present)}")
+    for role in (ROLE_TRAIN, ROLE_TEST):
+        expected = set(roles.loc[roles["role"] == role, "patient_uid"])
+        got = set(inventory.loc[inventory["role"] == role, "patient_uid"])
+        if expected != got:
+            raise RuntimeError(
+                f"{role}: pacientes del split sin segmentos {sorted(expected - got)[:5]}, "
+                f"pacientes sobrantes {sorted(got - expected)[:5]}"
+            )
+
+
+def verify_final_counts(dataset_scope: str, counts_by_role: dict) -> None:
+    """Los conteos de pacientes de la etapa final coinciden con los esperados
+    por el plan (72/18, 34/9, 106/27): un cambio aqui solo puede venir de un
+    split 80/20 distinto, y debe detenerse, no pasar desapercibido."""
+    expected = EXPECTED_FINAL_COUNTS.get(dataset_scope)
+    if expected is not None and counts_by_role != expected:
+        raise RuntimeError(f"{dataset_scope}: conteos de la etapa final {counts_by_role}, se esperaba {expected}")
+
+
+def run_final_v1(
+    dataset_scope: str,
+    split_csv: Path,
+    split_manifest: Path,
+    selection_config: Path,
+    source_runs_root: Path,
+    output_root: Path,
+) -> dict:
+    """Etapa final del protocolo holdout-v3: TODO el 80 % de desarrollo (sin
+    folds internos) mas el 20 % de prueba externa, ambos con los MISMOS
+    parametros de denoising/``TARGET_RMS``, calibrados EXCLUSIVAMENTE con
+    desarrollo. Esta etapa ya abre la prueba externa: la autorizacion COMPLETA
+    (protocolo, aprobacion, split, artefacto de procedencia y, para ICBHI,
+    revision por dispositivo) se valida ANTES de llamar a
+    ``admitted_recordings()``, leer ningun WAV o crear staging -ver
+    ``verify_final_access_authorized``-. Si ya existe una salida final que
+    coincide exactamente con el split/seleccion/codigo actuales, se reutiliza
+    sin volver a procesar audio; si existe pero no coincide, se rechaza en vez
+    de reemplazarla en silencio."""
+    pipeline = verify_final_access_authorized(selection_config, dataset_scope, split_csv, split_manifest, source_runs_root)
+    pipeline_fingerprint = _final_pipeline_fingerprint(pipeline)
+
+    target_dir = Path(output_root) / dataset_scope / STAGE_FINAL
+    if final_stage_matches_current_inputs(
+        target_dir, split_csv=split_csv, split_manifest=split_manifest, pipeline_fingerprint=pipeline_fingerprint,
+    ):
+        print(f"  (reutilizada sin tocar audio: {target_dir} ya coincide con split/seleccion/codigo actuales)")
+        return json.loads((target_dir / "manifest.json").read_text(encoding="utf-8"))
+    if (target_dir / "manifest.json").is_file():
+        raise RuntimeError(
+            f"{dataset_scope}: ya existe una salida final en {target_dir}, pero no coincide con el split, la "
+            "seleccion o el codigo actuales; no se reemplaza automaticamente. Borre manualmente ese directorio "
+            "si de verdad quiere regenerarla con la entrada actual."
+        )
+
+    roles = load_holdout_final_roles(split_csv, split_manifest, dataset_scope)
+    admitted = p3.admitted_recordings()
+    authorized_audio_ids = load_authorized_audio_ids(dataset_scope)
+    scope_meta = select_scope_recordings(admitted, authorized_audio_ids, roles)
+    verify_phase2_audio_hashes(scope_meta)
+
+    # recalibrate_denoising/verify_no_leakage_into_calibration se reutilizan sin
+    # cambios: ambos ya restringen la calibracion a role == "train" (aqui, TODO
+    # el desarrollo) y verifican que ningun paciente fuera de train -aqui, la
+    # prueba externa- haya entrado en esa calibracion.
+    params = recalibrate_denoising(dataset_scope, scope_meta, roles)
+    verify_no_leakage_into_calibration(roles, params)
+
+    processed = process_fold_recordings(scope_meta, params)
+    cycles_by_audio = p4._load_cycle_bounds()
+    inventory = build_final_segment_inventory(
+        dataset_scope, processed["scope_meta"], roles,
+        processed["dn_reliable_map"], processed["dn_reason_map"], cycles_by_audio,
+    )
+    verify_final_inventory_matches_roles(inventory, roles)
+    no_dn_array, dn_array = fill_fold_arrays(inventory, processed["no_dn_signals"], processed["dn_signals"])
+    validate_fold_output(inventory, no_dn_array, dn_array)
+
+    counts_by_role = {
+        role: int(inventory.loc[inventory["role"] == role, "patient_uid"].nunique())
+        for role in (ROLE_TRAIN, ROLE_TEST)
+    }
+    verify_final_counts(dataset_scope, counts_by_role)
+
+    target_dir = Path(output_root) / dataset_scope / STAGE_FINAL
+    staging = u.prepare_staging(target_dir)
+    try:
+        np.save(staging / "segments_no_dn.npy", no_dn_array)
+        np.save(staging / "segments_dn.npy", dn_array)
+        inventory.to_csv(staging / "segments.csv", index=False, lineterminator="\n")
+
+        split_hashes = {
+            "holdout_splits_csv_sha256": u.file_sha256(split_csv),
+            "holdout_splits_manifest_sha256": u.file_sha256(split_manifest),
+        }
+        selection_status = str(pipeline.get("status"))
+        preprocessing_params = {
+            "protocol": PROTOCOL_HOLDOUT_V3, "stage": STAGE_FINAL,
+            "dataset_scope": dataset_scope,
+            **split_hashes,
+            **params,
+            "peak_ceiling": float(cfg.PEAK_CEILING),
+            "bandpass_low_hz": int(cfg.BANDPASS_LOW), "bandpass_high_hz": int(cfg.BANDPASS_HIGH),
+            "bandpass_order": int(cfg.BANDPASS_ORDER),
+        }
+        (staging / "preprocessing_params.json").write_text(
+            json.dumps(preprocessing_params, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+        output_hashes = {
+            "segments.csv": u.file_sha256(staging / "segments.csv"),
+            "segments_no_dn.npy": u.file_sha256(staging / "segments_no_dn.npy"),
+            "segments_dn.npy": u.file_sha256(staging / "segments_dn.npy"),
+            "preprocessing_params.json": u.file_sha256(staging / "preprocessing_params.json"),
+        }
+        calibrated = {
+            k: params[k] for k in (
+                "nperseg", "noverlap", "noise_pct", "oversubtraction", "spectral_floor", "target_rms", "max_gain",
+            )
+        }
+        manifest = {
+            "verdict": "PASS",
+            "protocol": PROTOCOL_HOLDOUT_V3, "stage": STAGE_FINAL,
+            "dataset_scope": dataset_scope,
+            **split_hashes,
+            "selection_config": _repo_relative(selection_config),
+            "selection_config_sha256": u.file_sha256(selection_config),
+            "selection_status_at_generation": selection_status,
+            "selection_pipeline_fingerprint": pipeline_fingerprint,
+            "code_sha256": preprocessing_code_fingerprint(),
+            "input_hashes": {
+                "authorized_segments_csv": _repo_relative(AUTHORIZED_SEGMENTS_CSV[dataset_scope]),
+                "authorized_segments_csv_sha256": u.file_sha256(AUTHORIZED_SEGMENTS_CSV[dataset_scope]),
+                "phase2_resampling_report_sha256": u.file_sha256(cfg.R2_RESAMPLING),
+                "phase2_audio_set_sha256": _phase2_input_digest(processed["scope_meta"]),
+                "n_phase2_audios_verified": int(len(processed["scope_meta"])),
+            },
+            "calibrated_parameters": calibrated,
+            "n_calibration_patients": {
+                "denoising": int(len(params["denoising_fit_patient_ids"])),
+                "target_rms": int(len(params["target_rms_fit_patient_ids"])),
+            },
+            "n_segments": int(len(inventory)),
+            "n_patients": int(inventory["patient_uid"].nunique()),
+            "shape": list(no_dn_array.shape), "dtype": str(no_dn_array.dtype),
+            "counts_by_role": counts_by_role,
+            "outer_test": {"included": True, "n_patients": counts_by_role[ROLE_TEST]},
+            "output_hashes": output_hashes,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "git": _git_state(),
+            "python": sys.version.split()[0], "platform": platform.platform(),
+            "numpy": np.__version__, "pandas": pd.__version__, "scipy": scipy.__version__,
+        }
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+    except Exception:
+        import shutil
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    u.swap_staging_into_place(target_dir)
+    return manifest
+
+
 def run_fold_holdout_v3(
     dataset_scope: str,
     fold_id: int,
@@ -722,8 +1236,8 @@ def run_fold_holdout_v3(
     """Un ``(dataset_scope, fold interno)`` del protocolo holdout-v3: recalibra
     solo con los pacientes de train del fold, procesa train+validation,
     segmenta y publica atomicamente en ``<output_root>/<scope>/cv/fold_XX/``."""
-    if stage not in HOLDOUT_STAGES:
-        raise ValueError(f"stage={stage!r} no soportado (use {HOLDOUT_STAGES})")
+    if stage not in CV_FOLD_STAGES:
+        raise ValueError(f"stage={stage!r} no soportado (use {CV_FOLD_STAGES}; 'final' usa run_final_v1)")
 
     # Primero el split (validacion barata y sin tocar fase 2): hash, protocolo y rango del fold.
     roles, outer_test_ids = load_holdout_cv_roles(split_csv, split_manifest, dataset_scope, fold_id)
@@ -831,6 +1345,27 @@ def main_holdout_v3(args: argparse.Namespace) -> int:
     split_csv = args.split_csv or DEFAULT_HOLDOUT_SPLIT_CSV
     split_manifest = args.split_manifest or DEFAULT_HOLDOUT_SPLIT_MANIFEST
     output_root = args.output_root or HOLDOUT_OUTPUT_ROOT
+
+    if args.stage == STAGE_FINAL:
+        selection_config = args.selection_config or DEFAULT_SELECTION_CONFIG
+        source_runs_root = args.source_runs_root or DEFAULT_SOURCE_RUNS_ROOT
+        u.section(f"FOLD-DENOISING holdout-v3 (final): {args.dataset_scope}")
+        try:
+            manifest = run_final_v1(
+                args.dataset_scope, split_csv, split_manifest, selection_config, source_runs_root, output_root,
+            )
+        except Exception as exc:  # noqa: BLE001 - se reporta con claridad, nunca se oculta
+            print(f"FALLO: {exc}", file=sys.stderr)
+            return 1
+
+        print(f"  Segmentos       : {manifest['n_segments']}")
+        print(f"  Pacientes       : {manifest['n_patients']} ({manifest['counts_by_role']})")
+        print(f"  Prueba externa  : {manifest['outer_test']['n_patients']} pacientes PROCESADOS (seleccion aprobada)")
+        print(f"  Forma           : {manifest['shape']} ({manifest['dtype']})")
+        print(f"  Salida          : {Path(output_root) / args.dataset_scope / STAGE_FINAL}")
+        print("  Veredicto       : PASS")
+        return 0
+
     u.section(f"FOLD-DENOISING holdout-v3 ({args.stage}): {args.dataset_scope} / fold_{args.fold_id:02d}")
     try:
         manifest = run_fold_holdout_v3(

@@ -1,0 +1,126 @@
+# Seleccion INMUTABLE de los pipelines congelados para el reentrenamiento
+# definitivo y la evaluacion externa unica (protocolo holdout_final_v1,
+# PLAN-ENTRENAMIENTO-FINAL.md). modeling/final_training/ no decide nada de
+# esto por su cuenta: todo lo que necesita (arquitectura, condicion,
+# hiperparametros, epocas, permiso de acceso al test) sale de aqui.
+#
+# Procedencia, verificada campo a campo (hash + contenido) contra
+# best_hyperparameters.json antes del primer acceso al test
+# (modeling/final_training/selection.py::validate_source_artifact). "source_artifact"
+# es relativo a --source-runs-root (por defecto modeling/runs); "source_artifact_sha256"
+# es el sha256 exacto de ese archivo, calculado contra el real en el servidor:
+#   - ICBHI:    configuracion 1  de 20260926T193325Z_141939 (no_dn).
+#               Robustez (5 re-particiones del 80% de desarrollo, sin tocar el
+#               test): 20261001T162804Z_b97dab.
+#   - FRAIWAN:  configuracion 17 de 20260926T193325Z_141939 (dn).
+#   - COMBINED: configuracion 1  de 20260926T230936Z_f18f5a (dn).
+#
+# ICBHI: en este corpus los 26 controles se grabaron siempre con Meditron y
+# 56 de los 64 COPD nunca con Meditron (un clasificador que solo usa el
+# dispositivo alcanza ~0.951 de balanced accuracy, a ~4 puntos del pipeline
+# elegido). Meditron es el UNICO dispositivo de ICBHI con ambas clases (26
+# pacientes: 5 COPD, 21 Healthy); dentro de ese subgrupo, CNN no_dn alcanza
+# balanced_accuracy = 1.0 (ver device_review_path/evidence/icbhi_device_review.md,
+# generado SOLO con el 80% de desarrollo de holdout_cv_v3, sin tocar la prueba
+# externa). Con esa revision registrada, ICBHI queda "approved".
+
+protocol = "holdout_final_v1"
+
+[selection]
+# Umbral de decision sobre la probabilidad media por paciente (igual que en
+# holdout_cv_v3) y semilla base de la que se derivan las semillas de
+# reentrenamiento: ver [pipelines.<dataset>] mas abajo.
+threshold = 0.5
+seed_base = 20260914
+
+[split]
+# Split oficial 80/20: el mismo que uso holdout_cv_v3. Ningun split de
+# robustez (modeling/diagnostics/icbhi_robustness/) puede sustituir estas
+# rutas ni estos hashes.
+csv = "modeling/data/holdout_splits.csv"
+manifest = "modeling/data/holdout_splits_manifest.json"
+csv_sha256 = "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b"
+manifest_sha256 = "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7"
+
+[bootstrap]
+# IC 95%, estratificado por paciente (ver evaluation.bootstrap_confidence_interval).
+n_resamples = 2000
+confidence = 0.95
+random_state = 20260914
+
+# -----------------------------------------------------------------------------
+# Un pipeline por dataset. "reference_config" es el TOML de holdout_cv_v3 del
+# que se toman arquitectura/acustica/Log-Mel/augmentation/determinismo (no
+# forman parte de lo que se congela aqui: son identicos entre datasets);
+# "hyperparameters"/"epochs" son el UNICO resultado de la busqueda que se
+# reutiliza. "status" controla el acceso a la prueba externa: solo "approved"
+# lo permite.
+# -----------------------------------------------------------------------------
+
+[pipelines.ICBHI]
+architecture = "cnn"
+condition = "no_dn"
+branch = "no_dn"
+reference_config = "modeling/configs/holdout_final/cnn_v3.toml"
+epochs = 17
+status = "approved"
+source_run_id = "20260926T193325Z_141939"
+source_config_index = 1
+# Relativo a --source-runs-root (por defecto modeling/runs), NUNCA reconstruido
+# desde architecture/source_run_id/dataset/condition: ver selection.validate_source_artifact.
+source_artifact = "cnn/20260926T193325Z_141939/datasets/ICBHI/no_dn/best_hyperparameters.json"
+source_artifact_sha256 = "894ce0cb165c4ac62429a1d5f39bf71b2c92e93e3ba06a59d3d6ad5aff369798"
+robustness_run_id = "20261001T162804Z_b97dab"
+# Evidencia inmutable del subgrupo Meditron (26 pacientes, 5 COPD, 21 Healthy,
+# balanced_accuracy = 1.0), copiada byte a byte de cv_metrics_by_device.csv del
+# run de procedencia. Ver evidence/icbhi_device_review.md.
+device_review_path = "modeling/configs/final_test/evidence/icbhi_no_dn_cv_metrics_by_device.csv"
+device_review_sha256 = "1454de4c782da3c4f3497d72fe5291c786a2eb73f4e6c38f022d2268bd52c118"
+
+[pipelines.ICBHI.hyperparameters]
+lr = 0.0001
+dropout = 0.3
+weight_decay = 0.001
+batch_size = 64
+
+[pipelines.FRAIWAN_Extended]
+architecture = "cnn"
+condition = "dn"
+branch = "dn"
+reference_config = "modeling/configs/holdout_final/cnn_v3.toml"
+epochs = 12
+status = "approved"
+source_run_id = "20260926T193325Z_141939"
+source_config_index = 17
+source_artifact = "cnn/20260926T193325Z_141939/datasets/FRAIWAN_Extended/dn/best_hyperparameters.json"
+source_artifact_sha256 = "39c981002f16c635813e9116e6e87680ca0d224d6dc7dab032c934b0f379c153"
+robustness_run_id = ""
+device_review_path = ""
+device_review_sha256 = ""
+
+[pipelines.FRAIWAN_Extended.hyperparameters]
+lr = 0.001
+dropout = 0.5
+weight_decay = 0.00001
+batch_size = 32
+
+[pipelines.COMBINED]
+architecture = "cnn"
+condition = "dn"
+branch = "dn"
+reference_config = "modeling/configs/holdout_final/cnn_combined_v3.toml"
+epochs = 17
+status = "approved"
+source_run_id = "20260926T230936Z_f18f5a"
+source_config_index = 1
+source_artifact = "cnn/20260926T230936Z_f18f5a/datasets/COMBINED/dn/best_hyperparameters.json"
+source_artifact_sha256 = "1427e5cae3122d07d2e9714100883601d4c954581171926ed41883f63ed5fc95"
+robustness_run_id = ""
+device_review_path = ""
+device_review_sha256 = ""
+
+[pipelines.COMBINED.hyperparameters]
+lr = 0.0001
+dropout = 0.3
+weight_decay = 0.001
+batch_size = 64
