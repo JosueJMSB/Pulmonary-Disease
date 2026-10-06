@@ -1,0 +1,51 @@
+2026-10-02 10:13:59,067 INFO run_id=20261002T151359Z_3edb43 protocolo=holdout_final_v1 dataset=all device=cuda:0 NVIDIA RTX A5500, 23.3 GiB libres de 23.5 GiB resume=False
+2026-10-02 10:13:59,352 INFO ICBHI/no_dn: cargando datos de la etapa final (100% desarrollo + prueba bloqueada)
+2026-10-02 10:14:00,850 INFO log-mel ICBHI/final/no_dn: 500/6295
+2026-10-02 10:14:01,414 INFO log-mel ICBHI/final/no_dn: 1000/6295
+2026-10-02 10:14:01,978 INFO log-mel ICBHI/final/no_dn: 1500/6295
+2026-10-02 10:14:02,559 INFO log-mel ICBHI/final/no_dn: 2000/6295
+2026-10-02 10:14:03,144 INFO log-mel ICBHI/final/no_dn: 2500/6295
+2026-10-02 10:14:03,712 INFO log-mel ICBHI/final/no_dn: 3000/6295
+2026-10-02 10:14:04,277 INFO log-mel ICBHI/final/no_dn: 3500/6295
+2026-10-02 10:14:04,841 INFO log-mel ICBHI/final/no_dn: 4000/6295
+2026-10-02 10:14:05,405 INFO log-mel ICBHI/final/no_dn: 4500/6295
+2026-10-02 10:14:05,971 INFO log-mel ICBHI/final/no_dn: 5000/6295
+2026-10-02 10:14:06,535 INFO log-mel ICBHI/final/no_dn: 5500/6295
+2026-10-02 10:14:07,098 INFO log-mel ICBHI/final/no_dn: 6000/6295
+2026-10-02 10:14:07,465 INFO log-mel ICBHI/final/no_dn: 6295/6295
+2026-10-02 10:14:08,035 INFO ICBHI/no_dn: entrenando 17 epocas con 72 pacientes de desarrollo (lr=0.0001, dropout=0.3)
+2026-10-02 10:14:11,353 INFO ICBHI/no_dn: reajuste config 1 epoca 1/17: train_loss=0.5195
+2026-10-02 10:14:28,346 INFO ICBHI/no_dn: reajuste config 1 epoca 10/17: train_loss=0.0198
+2026-10-02 10:14:41,453 INFO ICBHI/no_dn: reajuste config 1 epoca 17/17: train_loss=0.0085
+2026-10-02 10:14:41,467 INFO ICBHI/no_dn: final_model.pt publicado, iniciando la UNICA evaluacion del test
+2026-10-02 10:14:54,745 INFO ICBHI/no_dn: COMPLETED, BA test = 0.9000 -> /home/jsivincha/pulmonary_workspace/runs/final_training/20261002T151359Z_3edb43/datasets/ICBHI/no_dn
+2026-10-02 10:14:54,769 INFO FRAIWAN_Extended/dn: cargando datos de la etapa final (100% desarrollo + prueba bloqueada)
+2026-10-02 10:14:55,057 INFO log-mel FRAIWAN_Extended/final/dn: 241/241
+2026-10-02 10:14:55,223 INFO FRAIWAN_Extended/dn: entrenando 12 epocas con 34 pacientes de desarrollo (lr=0.001, dropout=0.5)
+2026-10-02 10:14:55,399 INFO FRAIWAN_Extended/dn: reajuste config 17 epoca 1/12: train_loss=0.6829
+2026-10-02 10:14:56,092 INFO FRAIWAN_Extended/dn: reajuste config 17 epoca 10/12: train_loss=0.1916
+2026-10-02 10:14:56,245 INFO FRAIWAN_Extended/dn: reajuste config 17 epoca 12/12: train_loss=0.0800
+2026-10-02 10:14:56,258 INFO FRAIWAN_Extended/dn: final_model.pt publicado, iniciando la UNICA evaluacion del test
+2026-10-02 10:15:08,933 INFO FRAIWAN_Extended/dn: COMPLETED, BA test = 0.5000 -> /home/jsivincha/pulmonary_workspace/runs/final_training/20261002T151359Z_3edb43/datasets/FRAIWAN_Extended/dn
+2026-10-02 10:15:09,211 INFO COMBINED/dn: cargando datos de la etapa final (100% desarrollo + prueba bloqueada)
+2026-10-02 10:15:10,062 INFO log-mel COMBINED/final/dn: 500/6536
+2026-10-02 10:15:10,630 INFO log-mel COMBINED/final/dn: 1000/6536
+2026-10-02 10:15:11,199 INFO log-mel COMBINED/final/dn: 1500/6536
+2026-10-02 10:15:11,768 INFO log-mel COMBINED/final/dn: 2000/6536
+2026-10-02 10:15:12,337 INFO log-mel COMBINED/final/dn: 2500/6536
+2026-10-02 10:15:12,905 INFO log-mel COMBINED/final/dn: 3000/6536
+2026-10-02 10:15:13,476 INFO log-mel COMBINED/final/dn: 3500/6536
+2026-10-02 10:15:14,045 INFO log-mel COMBINED/final/dn: 4000/6536
+2026-10-02 10:15:14,614 INFO log-mel COMBINED/final/dn: 4500/6536
+2026-10-02 10:15:15,183 INFO log-mel COMBINED/final/dn: 5000/6536
+2026-10-02 10:15:15,752 INFO log-mel COMBINED/final/dn: 5500/6536
+2026-10-02 10:15:16,321 INFO log-mel COMBINED/final/dn: 6000/6536
+2026-10-02 10:15:16,890 INFO log-mel COMBINED/final/dn: 6500/6536
+2026-10-02 10:15:16,931 INFO log-mel COMBINED/final/dn: 6536/6536
+2026-10-02 10:15:17,703 INFO COMBINED/dn: entrenando 17 epocas con 106 pacientes de desarrollo (lr=0.0001, dropout=0.3)
+2026-10-02 10:15:19,969 INFO COMBINED/dn: reajuste config 1 epoca 1/17: train_loss=0.5937
+2026-10-02 10:15:37,656 INFO COMBINED/dn: reajuste config 1 epoca 10/17: train_loss=0.0319
+2026-10-02 10:15:51,506 INFO COMBINED/dn: reajuste config 1 epoca 17/17: train_loss=0.0086
+2026-10-02 10:15:51,518 INFO COMBINED/dn: final_model.pt publicado, iniciando la UNICA evaluacion del test
+2026-10-02 10:16:04,451 INFO COMBINED/dn: COMPLETED, BA test = 0.8750 -> /home/jsivincha/pulmonary_workspace/runs/final_training/20261002T151359Z_3edb43/datasets/COMBINED/dn
+2026-10-02 10:16:04,453 INFO ejecucion 20261002T151359Z_3edb43 finalizada con estado COMPLETED

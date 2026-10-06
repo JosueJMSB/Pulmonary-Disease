@@ -1,0 +1,9 @@
+metric,value
+accuracy,0.9444444444444444
+balanced_accuracy,0.9
+recall_copd,1.0
+recall_negative,0.8
+macro_f1,0.9259259259259258
+min_class_recall,0.8
+auroc,0.9846153846153847
+auprc_copd,0.9945054945054945

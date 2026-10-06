@@ -1,0 +1,63 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "diagnostic_only": true,
+  "negative_control": false,
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "seed": 20261001,
+  "pipeline": "cnn_dn",
+  "architecture": "cnn",
+  "condition": "dn",
+  "branch": "dn",
+  "augment": false,
+  "frozen_hyperparameters": {
+    "config_index": 0,
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 1e-05,
+    "batch_size": 16
+  },
+  "source_selection": {
+    "path": "/home/jsivincha/pulmonary_workspace/runs/cnn/20260926T193325Z_141939/datasets/ICBHI/dn/best_hyperparameters.json",
+    "sha256": "9971f25814ba8501596cf796e983080f428aac5d89b2136d0b26b74575d07e38",
+    "source_run_id": "20260926T193325Z_141939",
+    "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+    "architecture_config_file_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+    "architecture_config_fingerprint": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358"
+  },
+  "best_epochs_by_fold": {
+    "0": 45,
+    "1": 11,
+    "2": 5,
+    "3": 7,
+    "4": 15
+  },
+  "pooled_metrics": {
+    "n_patients": 72,
+    "accuracy": 0.9722222222222222,
+    "balanced_accuracy": 0.9663865546218486,
+    "recall_copd": 0.9803921568627451,
+    "recall_healthy": 0.9523809523809523,
+    "precision_copd": 0.9803921568627451,
+    "precision_healthy": 0.9523809523809523,
+    "f1_copd": 0.9803921568627451,
+    "f1_healthy": 0.9523809523809523,
+    "macro_f1": 0.9663865546218486,
+    "auroc": 0.9598506069094305,
+    "auprc_copd": 0.9801608941636752,
+    "tn": 20,
+    "fp": 1,
+    "fn": 1,
+    "tp": 50,
+    "threshold": 0.5,
+    "recall_negative": 0.9523809523809523,
+    "min_class_recall": 0.9523809523809523
+  },
+  "written_at_utc": "2026-10-01T16:40:13.603760+00:00"
+}

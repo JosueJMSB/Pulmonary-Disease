@@ -1,0 +1,33 @@
+{
+  "selection_config_path": "modeling/configs/final_test/selected_pipelines.toml",
+  "selection_config_sha256": "b597df07a1863180ec75d3ebfade2a6f909384a76e1d5ba8e7516392e61162b8",
+  "threshold": 0.5,
+  "seed_base": 20260914,
+  "bootstrap": {
+    "n_resamples": 2000,
+    "confidence": 0.95,
+    "random_state": 20260914
+  },
+  "pipeline": {
+    "dataset": "ICBHI",
+    "architecture": "cnn",
+    "condition": "no_dn",
+    "branch": "no_dn",
+    "reference_config": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+    "hyperparameters": {
+      "lr": 0.0001,
+      "dropout": 0.3,
+      "weight_decay": 0.001,
+      "batch_size": 64
+    },
+    "epochs": 17,
+    "status": "approved",
+    "source_run_id": "20260926T193325Z_141939",
+    "source_config_index": 1,
+    "source_artifact": "cnn/20260926T193325Z_141939/datasets/ICBHI/no_dn/best_hyperparameters.json",
+    "source_artifact_sha256": "894ce0cb165c4ac62429a1d5f39bf71b2c92e93e3ba06a59d3d6ad5aff369798",
+    "robustness_run_id": "20261001T162804Z_b97dab",
+    "device_review_path": "modeling/configs/final_test/evidence/icbhi_no_dn_cv_metrics_by_device.csv",
+    "device_review_sha256": "1454de4c782da3c4f3497d72fe5291c786a2eb73f4e6c38f022d2268bd52c118"
+  }
+}

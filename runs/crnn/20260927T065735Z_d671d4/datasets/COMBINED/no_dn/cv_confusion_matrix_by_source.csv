@@ -1,0 +1,5 @@
+source_dataset,real,predicho_Control,predicho_COPD
+FRAIWAN,real_Control,25,2
+FRAIWAN,real_COPD,3,4
+ICBHI,real_Control,20,1
+ICBHI,real_COPD,1,50

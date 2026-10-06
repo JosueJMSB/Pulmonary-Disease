@@ -1,0 +1,22 @@
+{
+  "status": "COMPLETED",
+  "updated_at_utc": "2026-09-27T10:42:27.701480+00:00",
+  "protocol": "holdout_cv_v3",
+  "conditions": [
+    {
+      "dataset": "COMBINED",
+      "condition": "no_dn",
+      "status": "COMPLETED"
+    },
+    {
+      "dataset": "COMBINED",
+      "condition": "dn",
+      "status": "COMPLETED"
+    },
+    {
+      "dataset": "COMBINED",
+      "condition": "no_dn_aug",
+      "status": "COMPLETED"
+    }
+  ]
+}

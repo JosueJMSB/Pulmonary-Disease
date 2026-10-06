@@ -1,0 +1,11 @@
+{
+  "dataset": "FRAIWAN_Extended",
+  "condition": "dn",
+  "pipeline_fingerprint": "b63b851af353566ae8c72f1d24edb33a9a845a2b30e5abaaea0d3fb1a0cd0867",
+  "model_sha256": "649914ea28fb32a91184766a161b6985dd92237e5b2110f05accc1c0c3eb75f6",
+  "status": "COMPLETED",
+  "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+  "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+  "created_at_utc": "2026-10-02T15:14:56.260837+00:00",
+  "updated_at_utc": "2026-10-02T15:15:08.933621+00:00"
+}

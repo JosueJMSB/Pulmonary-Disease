@@ -1,0 +1,11 @@
+{
+  "opened_at_utc": "2026-10-02T15:14:56.261318+00:00",
+  "dataset": "FRAIWAN_Extended",
+  "condition": "dn",
+  "architecture": "cnn",
+  "selection_status": "approved",
+  "pipeline_fingerprint": "b63b851af353566ae8c72f1d24edb33a9a845a2b30e5abaaea0d3fb1a0cd0867",
+  "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+  "n_test_patients": 9,
+  "n_test_segments": 54
+}

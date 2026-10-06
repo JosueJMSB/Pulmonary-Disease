@@ -1,0 +1,6 @@
+model,dataset,condition,negative_class,config_index,fold,status,lr,dropout,weight_decay,batch_size,n_patients,accuracy,balanced_accuracy,recall_copd,recall_negative,precision_copd,f1_copd,macro_f1,min_class_recall,auroc,auprc_copd,tn,fp,fn,tp,threshold,best_epoch,epochs_run,stopped_early,seconds,error
+cnn,FRAIWAN_Extended,no_dn_aug,Normal,17,0,COMPLETED,0.001,0.5,1e-05,32,7,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,5,0,0,2,0.5,14,29,True,2.6950724170310423,
+cnn,FRAIWAN_Extended,no_dn_aug,Normal,17,1,COMPLETED,0.001,0.5,1e-05,32,7,0.8571428571428571,0.9,1.0,0.8,0.6666666666666666,0.8,0.8444444444444444,0.8,0.8,0.5833333333333333,4,1,0,2,0.5,16,31,True,2.76668002596125,
+cnn,FRAIWAN_Extended,no_dn_aug,Normal,17,2,COMPLETED,0.001,0.5,1e-05,32,7,0.2857142857142857,0.5833333333333334,1.0,0.16666666666666666,0.16666666666666666,0.2857142857142857,0.2857142857142857,0.16666666666666666,0.16666666666666663,0.16666666666666666,1,5,0,1,0.5,6,21,True,1.8989574169972911,
+cnn,FRAIWAN_Extended,no_dn_aug,Normal,17,3,COMPLETED,0.001,0.5,1e-05,32,7,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,6,0,0,1,0.5,23,38,True,3.440082206041552,
+cnn,FRAIWAN_Extended,no_dn_aug,Normal,17,4,COMPLETED,0.001,0.5,1e-05,32,6,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,5,0,0,1,0.5,27,42,True,3.9511248810449615,

@@ -1,0 +1,54 @@
+{
+  "protocol": "holdout_cv_v3",
+  "model": "cnn",
+  "dataset": "FRAIWAN_Extended",
+  "condition": "no_dn",
+  "branch": "no_dn",
+  "augment": false,
+  "status": "COMPLETED",
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "git": {
+    "commit": "5fb47600b211d494cdf8818ec7539eed2fed0c67",
+    "dirty": true
+  },
+  "written_at_utc": "2026-09-26T22:58:02.845612+00:00",
+  "run_id": "20260926T193325Z_141939",
+  "smoke_test": false,
+  "resumed": false,
+  "fold_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "split": {
+    "n_splits": 5,
+    "n_development_patients": 34,
+    "seed": 20260914
+  },
+  "hashes": {
+    "config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "data": {
+      "FRAIWAN_Extended/cv/fold_00/segments.csv": "e2d5c86e4a3926c43251bbd4c9ab19189c1ceca0f9138561a57937bea476e8b5",
+      "FRAIWAN_Extended/cv/fold_00/segments_no_dn.npy": "807383a5cbb8feb5f4a25d71c2fa20c59cc1bd600aaf5c501f951ddca5106f38",
+      "FRAIWAN_Extended/cv/fold_01/segments.csv": "a85451d22eaa0764c796a79431deafb6ff9878a2d59b43d70ee6bc5b3b5f5a0c",
+      "FRAIWAN_Extended/cv/fold_01/segments_no_dn.npy": "ae1ced543a454f9ae27b882794c319ff30d804793b7be6b2001fd9caf90eafcb",
+      "FRAIWAN_Extended/cv/fold_02/segments.csv": "9443a6c41a1daead563d75bb201b7c1549c1f0e26ed34c9f32ea3834455095ff",
+      "FRAIWAN_Extended/cv/fold_02/segments_no_dn.npy": "43264bd34e839e016e365516b26a773bb476670e3e55b0ff204d8b819de7073b",
+      "FRAIWAN_Extended/cv/fold_03/segments.csv": "c0e1329652f624872ed04f825f29db8cde93db975955e1c34e667ea8efbc03ac",
+      "FRAIWAN_Extended/cv/fold_03/segments_no_dn.npy": "e8ea8f4236504cf8fb8c1d65d37e1c180c42370945366676eb4bf06b2f049ce7",
+      "FRAIWAN_Extended/cv/fold_04/segments.csv": "a643d110d82f0b2351fb89575c7c58f338541d2458dcf27a54842be978373152",
+      "FRAIWAN_Extended/cv/fold_04/segments_no_dn.npy": "1fbb3820c4ebaf173ee6e5694d995ccd2601a7db4765fc871f0aad52b355e52a"
+    }
+  }
+}

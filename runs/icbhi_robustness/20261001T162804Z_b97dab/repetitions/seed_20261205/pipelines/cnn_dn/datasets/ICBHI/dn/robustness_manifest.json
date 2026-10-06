@@ -1,0 +1,63 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "diagnostic_only": true,
+  "negative_control": false,
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "seed": 20261205,
+  "pipeline": "cnn_dn",
+  "architecture": "cnn",
+  "condition": "dn",
+  "branch": "dn",
+  "augment": false,
+  "frozen_hyperparameters": {
+    "config_index": 0,
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 1e-05,
+    "batch_size": 16
+  },
+  "source_selection": {
+    "path": "/home/jsivincha/pulmonary_workspace/runs/cnn/20260926T193325Z_141939/datasets/ICBHI/dn/best_hyperparameters.json",
+    "sha256": "9971f25814ba8501596cf796e983080f428aac5d89b2136d0b26b74575d07e38",
+    "source_run_id": "20260926T193325Z_141939",
+    "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+    "architecture_config_file_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+    "architecture_config_fingerprint": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358"
+  },
+  "best_epochs_by_fold": {
+    "0": 29,
+    "1": 47,
+    "2": 16,
+    "3": 21,
+    "4": 9
+  },
+  "pooled_metrics": {
+    "n_patients": 72,
+    "accuracy": 0.9861111111111112,
+    "balanced_accuracy": 0.9761904761904762,
+    "recall_copd": 1.0,
+    "recall_healthy": 0.9523809523809523,
+    "precision_copd": 0.9807692307692307,
+    "precision_healthy": 1.0,
+    "f1_copd": 0.9902912621359223,
+    "f1_healthy": 0.975609756097561,
+    "macro_f1": 0.9829505091167416,
+    "auroc": 0.9719887955182073,
+    "auprc_copd": 0.9833876333239181,
+    "tn": 20,
+    "fp": 1,
+    "fn": 0,
+    "tp": 51,
+    "threshold": 0.5,
+    "recall_negative": 0.9523809523809523,
+    "min_class_recall": 0.9523809523809523
+  },
+  "written_at_utc": "2026-10-01T18:23:37.604254+00:00"
+}

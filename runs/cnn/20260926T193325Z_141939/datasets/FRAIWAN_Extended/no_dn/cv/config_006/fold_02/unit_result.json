@@ -1,0 +1,41 @@
+{
+  "model": "cnn",
+  "dataset": "FRAIWAN_Extended",
+  "condition": "no_dn",
+  "config_index": 6,
+  "fold": 2,
+  "hyperparameters": {
+    "lr": 0.0001,
+    "dropout": 0.5,
+    "weight_decay": 0.001,
+    "batch_size": 16
+  },
+  "metrics": {
+    "n_patients": 7,
+    "accuracy": 0.2857142857142857,
+    "balanced_accuracy": 0.5833333333333334,
+    "recall_copd": 1.0,
+    "recall_normal": 0.16666666666666666,
+    "precision_copd": 0.16666666666666666,
+    "precision_normal": 1.0,
+    "f1_copd": 0.2857142857142857,
+    "f1_normal": 0.2857142857142857,
+    "macro_f1": 0.2857142857142857,
+    "auroc": 0.16666666666666663,
+    "auprc_copd": 0.16666666666666666,
+    "tn": 1,
+    "fp": 5,
+    "fn": 0,
+    "tp": 1,
+    "threshold": 0.5,
+    "recall_negative": 0.16666666666666666,
+    "min_class_recall": 0.16666666666666666
+  },
+  "best_epoch": 5,
+  "epochs_run": 20,
+  "stopped_early": true,
+  "seconds": 1.925507071078755,
+  "n_train_patients": 27,
+  "n_val_patients": 7,
+  "n_val_segments": 44
+}

@@ -1,0 +1,64 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "diagnostic_only": true,
+  "negative_control": true,
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "seed": 20261205,
+  "pipeline": "cnn_no_dn_permuted",
+  "architecture": "cnn",
+  "condition": "permuted_labels",
+  "branch": "no_dn",
+  "augment": false,
+  "frozen_hyperparameters": {
+    "config_index": 1,
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 0.001,
+    "batch_size": 64
+  },
+  "source_selection": {
+    "path": "/home/jsivincha/pulmonary_workspace/runs/cnn/20260926T193325Z_141939/datasets/ICBHI/no_dn/best_hyperparameters.json",
+    "sha256": "894ce0cb165c4ac62429a1d5f39bf71b2c92e93e3ba06a59d3d6ad5aff369798",
+    "source_run_id": "20260926T193325Z_141939",
+    "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+    "architecture_config_file_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+    "architecture_config_fingerprint": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "label_permutation_sha256": "d943fae44d0f992780f52ef1e9597e085d73af4d7531b2c4d9f92ba6545abfbc"
+  },
+  "best_epochs_by_fold": {
+    "0": 15,
+    "1": 1,
+    "2": 8,
+    "3": 20,
+    "4": 3
+  },
+  "pooled_metrics": {
+    "n_patients": 72,
+    "accuracy": 0.8055555555555556,
+    "balanced_accuracy": 0.7226890756302521,
+    "recall_copd": 0.9215686274509803,
+    "recall_healthy": 0.5238095238095238,
+    "precision_copd": 0.8245614035087719,
+    "precision_healthy": 0.7333333333333333,
+    "f1_copd": 0.8703703703703703,
+    "f1_healthy": 0.6111111111111112,
+    "macro_f1": 0.7407407407407407,
+    "auroc": 0.6778711484593838,
+    "auprc_copd": 0.7904188299555166,
+    "tn": 11,
+    "fp": 10,
+    "fn": 4,
+    "tp": 47,
+    "threshold": 0.5,
+    "recall_negative": 0.5238095238095238,
+    "min_class_recall": 0.5238095238095238
+  },
+  "written_at_utc": "2026-10-01T18:37:41.895738+00:00"
+}

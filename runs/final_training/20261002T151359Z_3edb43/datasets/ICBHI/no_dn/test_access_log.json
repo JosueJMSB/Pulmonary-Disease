@@ -1,0 +1,11 @@
+{
+  "opened_at_utc": "2026-10-02T15:14:41.471726+00:00",
+  "dataset": "ICBHI",
+  "condition": "no_dn",
+  "architecture": "cnn",
+  "selection_status": "approved",
+  "pipeline_fingerprint": "0483b1e693e9d84567247aec5ef3462d0c40562984fe7cf91a3841700b3673be",
+  "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+  "n_test_patients": 18,
+  "n_test_segments": 1580
+}

@@ -1,0 +1,54 @@
+{
+  "protocol": "holdout_cv_v3",
+  "model": "crnn",
+  "dataset": "COMBINED",
+  "condition": "dn",
+  "branch": "dn",
+  "augment": false,
+  "status": "COMPLETED",
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "git": {
+    "commit": "5fb47600b211d494cdf8818ec7539eed2fed0c67",
+    "dirty": true
+  },
+  "written_at_utc": "2026-09-27T10:37:49.969538+00:00",
+  "run_id": "20260927T065735Z_d671d4",
+  "smoke_test": false,
+  "resumed": false,
+  "fold_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "split": {
+    "n_splits": 5,
+    "n_development_patients": 106,
+    "seed": 20260914
+  },
+  "hashes": {
+    "config_sha256": "9d716365cfe48f7edb154f4f8451a014700e5fbb6c7006e419ed16257c4a16fd",
+    "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "data": {
+      "COMBINED/cv/fold_00/segments.csv": "d8a4c08bade37910df6d50230b91c94098b9ed8806764f133008ad3e548fed16",
+      "COMBINED/cv/fold_01/segments.csv": "f6a6985b221426b6a901e1799369926b76ec33d82528cbe1e041910f2706086f",
+      "COMBINED/cv/fold_02/segments.csv": "587a8a54837cc1dd8ac5aec49e01030b81a1f8ed3b218579faa8013b50e7a0ce",
+      "COMBINED/cv/fold_03/segments.csv": "3a3bc9830fa869af36e824faf9422fb616f888804dd77835121e647a78b4f43b",
+      "COMBINED/cv/fold_04/segments.csv": "5ea98935dee17bdde1825f4e91574b77bebb1bde376626cb96f341de5444b8fc",
+      "COMBINED/cv/fold_00/segments_dn.npy": "2420a4c4e3aa45bea42534d1d5b668e6e48d81a4815d791014997309a4018770",
+      "COMBINED/cv/fold_01/segments_dn.npy": "78bb63f894ceb9edddbdd685cdfc4bf6f8a203824b538915cf62fb295355aae4",
+      "COMBINED/cv/fold_02/segments_dn.npy": "11d6a6123f69a5eb0bf5a3fe2041d5fccde404c8d1eedbac59331e9e67f86b46",
+      "COMBINED/cv/fold_03/segments_dn.npy": "20810216367362bfcdcf41a1a0654a94448d201f00194282ae234f94fbe559a6",
+      "COMBINED/cv/fold_04/segments_dn.npy": "b2375e29f01c60e1a2702034bc1a25aaf02694f1a934d4e1084a264f3d6b173d"
+    }
+  }
+}

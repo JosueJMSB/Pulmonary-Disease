@@ -1,0 +1,3 @@
+real,predicho_Normal,predicho_COPD
+real_Normal,0,7
+real_COPD,0,2

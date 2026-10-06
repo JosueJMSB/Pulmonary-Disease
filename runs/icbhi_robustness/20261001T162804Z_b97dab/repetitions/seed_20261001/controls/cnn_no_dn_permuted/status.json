@@ -1,0 +1,8 @@
+{
+  "status": "COMPLETED",
+  "updated_at_utc": "2026-10-01T16:56:28.352218+00:00",
+  "protocol": "icbhi_robustness_v1",
+  "seed": 20261001,
+  "pipeline": "cnn_no_dn_permuted",
+  "outer_test_accessed": false
+}

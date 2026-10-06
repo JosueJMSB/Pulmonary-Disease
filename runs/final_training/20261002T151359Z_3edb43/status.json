@@ -1,0 +1,19 @@
+{
+  "status": "COMPLETED",
+  "updated_at_utc": "2026-10-02T15:16:04.453084+00:00",
+  "protocol": "holdout_final_v1",
+  "datasets": [
+    {
+      "dataset": "ICBHI",
+      "status": "COMPLETED"
+    },
+    {
+      "dataset": "FRAIWAN_Extended",
+      "status": "COMPLETED"
+    },
+    {
+      "dataset": "COMBINED",
+      "status": "COMPLETED"
+    }
+  ]
+}

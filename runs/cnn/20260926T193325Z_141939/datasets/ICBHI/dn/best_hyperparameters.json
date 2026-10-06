@@ -1,0 +1,102 @@
+{
+  "protocol": "holdout_cv_v3",
+  "model": "cnn",
+  "dataset": "ICBHI",
+  "condition": "dn",
+  "branch": "dn",
+  "augment": false,
+  "config_index": 0,
+  "hyperparameters": {
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 1e-05,
+    "batch_size": 16
+  },
+  "hyperparameters_source": "search",
+  "expected_folds": 5,
+  "fold_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "metrics": {
+    "fold_mean": {
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "recall_copd": 1.0,
+      "recall_negative": 1.0,
+      "macro_f1": 1.0,
+      "min_class_recall": 1.0,
+      "auroc": 1.0,
+      "auprc_copd": 1.0
+    },
+    "fold_std": {
+      "accuracy": 0.0,
+      "balanced_accuracy": 0.0,
+      "recall_copd": 0.0,
+      "recall_negative": 0.0,
+      "macro_f1": 0.0,
+      "min_class_recall": 0.0,
+      "auroc": 0.0,
+      "auprc_copd": 1.1102230246251565e-16
+    },
+    "pooled": {
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "recall_copd": 1.0,
+      "recall_negative": 1.0,
+      "macro_f1": 1.0,
+      "min_class_recall": 1.0,
+      "auroc": 1.0,
+      "auprc_copd": 1.0
+    }
+  },
+  "best_epochs_by_fold": {
+    "0": 9,
+    "1": 2,
+    "2": 18,
+    "3": 4,
+    "4": 22
+  },
+  "median_best_epoch": 9,
+  "selection": {
+    "criteria": [
+      "balanced_accuracy_mean",
+      "macro_f1_mean",
+      "min_class_recall_mean",
+      "balanced_accuracy_std",
+      "config_order"
+    ],
+    "criteria_applied": [
+      "balanced_accuracy_mean",
+      "macro_f1_mean",
+      "min_class_recall_mean",
+      "balanced_accuracy_std",
+      "config_order"
+    ],
+    "decided_by": "config_order",
+    "n_candidates": 20,
+    "n_complete_candidates": 20,
+    "n_incomplete_candidates": 0
+  },
+  "hashes": {
+    "config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "data": {
+      "ICBHI/cv/fold_00/segments.csv": "267052261506f09883396714cc3d11b90d8fcfc50baf265c8c6287b77d66f3d3",
+      "ICBHI/cv/fold_01/segments.csv": "62c9329839000161e7333e988726eb89d6541cca0e5b6a348ceeb18b807c5e49",
+      "ICBHI/cv/fold_02/segments.csv": "37d7cc00f82759f37f8f0d2938b50e8999f2ea104257fa4f251b6343c53a652a",
+      "ICBHI/cv/fold_03/segments.csv": "474f3eb13fd37402ba79f36e37f83fcd0a7bc611e92746a674f362c2dd53a7ba",
+      "ICBHI/cv/fold_04/segments.csv": "48a912eb5974f3514ff72f97007e1057a1d2e9f727c44d7194399a6cca3abacd",
+      "ICBHI/cv/fold_00/segments_dn.npy": "15bfe8792286a5c95ed174eb468601d2cb08123d5894c2ce12375d87c8031c32",
+      "ICBHI/cv/fold_01/segments_dn.npy": "d63c43a8d2e02378a37c130b2b542decf28377372af0ed7599f951213b84c5e0",
+      "ICBHI/cv/fold_02/segments_dn.npy": "59111e6ce881c2fd07afea58b3fa6403e64f77b0985712bf9d2324da7e72b8e2",
+      "ICBHI/cv/fold_03/segments_dn.npy": "1cd6aa15f00eff6608585a5108d29aff6d01c8bb6fc1584e5add2c4663d5c825",
+      "ICBHI/cv/fold_04/segments_dn.npy": "63b9a006ff92d3cd24ffd92c7307c15f9dab3beb0fd9a206addc490c718305ed"
+    }
+  }
+}

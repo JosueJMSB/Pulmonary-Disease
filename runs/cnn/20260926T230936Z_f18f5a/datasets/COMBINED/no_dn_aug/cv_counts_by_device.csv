@@ -1,0 +1,7 @@
+device,class,target_label,n_segments,n_recordings,n_patient_devices
+AKGC417L,copd,1,3311,473,24
+Litt3200,control,0,152,27,27
+Litt3200,copd,1,335,58,16
+LittC2SE,copd,1,350,50,15
+Meditron,control,0,199,29,21
+Meditron,copd,1,555,26,5

@@ -1,0 +1,41 @@
+{
+  "model": "crnn",
+  "dataset": "COMBINED",
+  "condition": "no_dn",
+  "config_index": 8,
+  "fold": 2,
+  "hyperparameters": {
+    "lr": 0.0003,
+    "dropout": 0.3,
+    "weight_decay": 0.0001,
+    "batch_size": 64
+  },
+  "metrics": {
+    "n_patients": 21,
+    "accuracy": 0.8571428571428571,
+    "balanced_accuracy": 0.8545454545454545,
+    "recall_copd": 0.9090909090909091,
+    "recall_control": 0.8,
+    "precision_copd": 0.8333333333333334,
+    "precision_control": 0.8888888888888888,
+    "f1_copd": 0.8695652173913043,
+    "f1_control": 0.8421052631578947,
+    "macro_f1": 0.8558352402745995,
+    "auroc": 0.9272727272727272,
+    "auprc_copd": 0.947348484848485,
+    "tn": 8,
+    "fp": 2,
+    "fn": 1,
+    "tp": 10,
+    "threshold": 0.5,
+    "recall_negative": 0.8,
+    "min_class_recall": 0.8
+  },
+  "best_epoch": 2,
+  "epochs_run": 20,
+  "stopped_early": true,
+  "seconds": 41.00583669100888,
+  "n_train_patients": 85,
+  "n_val_patients": 21,
+  "n_val_segments": 1168
+}

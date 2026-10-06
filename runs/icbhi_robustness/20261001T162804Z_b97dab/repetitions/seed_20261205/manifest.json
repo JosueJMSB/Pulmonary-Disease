@@ -1,0 +1,75 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "seed": 20261205,
+  "split_csv_sha256": "06e21888825383690e44998c624c8a718d1060c0470efbb367ad4d386624b657",
+  "split_manifest_sha256": "234a1f780b838879685b34ff6e735fde95168f3c31a86cb4123543e5a5457159",
+  "fold_data": [
+    {
+      "fold": 0,
+      "n_patients": 72,
+      "n_segments": 4715,
+      "manifest": "/home/jsivincha/pulmonary_workspace/icbhi_robustness/data/seed_20261205/ICBHI/cv/fold_00/manifest.json",
+      "manifest_sha256": "3fd18b4c62a6cf6bdc0a4fbbff3f293d07294e8d840303bd8c35964c9cd970cc"
+    },
+    {
+      "fold": 1,
+      "n_patients": 72,
+      "n_segments": 4715,
+      "manifest": "/home/jsivincha/pulmonary_workspace/icbhi_robustness/data/seed_20261205/ICBHI/cv/fold_01/manifest.json",
+      "manifest_sha256": "58022c45521acf69bb5c0ff8a94bb254608504d802b4d3f8945b95feeff7ccb2"
+    },
+    {
+      "fold": 2,
+      "n_patients": 72,
+      "n_segments": 4715,
+      "manifest": "/home/jsivincha/pulmonary_workspace/icbhi_robustness/data/seed_20261205/ICBHI/cv/fold_02/manifest.json",
+      "manifest_sha256": "00bd4dd590b52485a00b66134747240a4d215e63c4b5bead3044f6b9aa8d375a"
+    },
+    {
+      "fold": 3,
+      "n_patients": 72,
+      "n_segments": 4715,
+      "manifest": "/home/jsivincha/pulmonary_workspace/icbhi_robustness/data/seed_20261205/ICBHI/cv/fold_03/manifest.json",
+      "manifest_sha256": "4f033627f807f7ac4b8a061e697c3563e5816dfa0caacd5eec5831fac80f68cc"
+    },
+    {
+      "fold": 4,
+      "n_patients": 72,
+      "n_segments": 4715,
+      "manifest": "/home/jsivincha/pulmonary_workspace/icbhi_robustness/data/seed_20261205/ICBHI/cv/fold_04/manifest.json",
+      "manifest_sha256": "713810287489541ebf6bf6f3939fc83f13db4dab7f3adb9be5bf3b498de61ac4"
+    }
+  ],
+  "outer_test": {
+    "n_blocked_patients": 18,
+    "accessed": false
+  },
+  "pipelines": [
+    {
+      "id": "cnn_no_dn",
+      "negative_control": false,
+      "status": "COMPLETED"
+    },
+    {
+      "id": "cnn_dn",
+      "negative_control": false,
+      "status": "COMPLETED"
+    },
+    {
+      "id": "crnn_dn",
+      "negative_control": false,
+      "status": "COMPLETED"
+    },
+    {
+      "id": "crnn_no_dn_aug",
+      "negative_control": false,
+      "status": "COMPLETED"
+    },
+    {
+      "id": "cnn_no_dn_permuted",
+      "negative_control": true,
+      "status": "COMPLETED"
+    }
+  ],
+  "device_baseline": "COMPLETED"
+}

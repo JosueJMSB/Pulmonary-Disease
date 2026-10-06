@@ -1,0 +1,64 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "diagnostic_only": true,
+  "negative_control": true,
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "seed": 20261001,
+  "pipeline": "cnn_no_dn_permuted",
+  "architecture": "cnn",
+  "condition": "permuted_labels",
+  "branch": "no_dn",
+  "augment": false,
+  "frozen_hyperparameters": {
+    "config_index": 1,
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 0.001,
+    "batch_size": 64
+  },
+  "source_selection": {
+    "path": "/home/jsivincha/pulmonary_workspace/runs/cnn/20260926T193325Z_141939/datasets/ICBHI/no_dn/best_hyperparameters.json",
+    "sha256": "894ce0cb165c4ac62429a1d5f39bf71b2c92e93e3ba06a59d3d6ad5aff369798",
+    "source_run_id": "20260926T193325Z_141939",
+    "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+    "architecture_config_file_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+    "architecture_config_fingerprint": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+    "label_permutation_sha256": "0dab3d42fbef8aac4cf3102208cc571d474a8b5bb9fc9fe5abdb5284926d1110"
+  },
+  "best_epochs_by_fold": {
+    "0": 10,
+    "1": 21,
+    "2": 33,
+    "3": 1,
+    "4": 16
+  },
+  "pooled_metrics": {
+    "n_patients": 72,
+    "accuracy": 0.6666666666666666,
+    "balanced_accuracy": 0.6386554621848739,
+    "recall_copd": 0.7058823529411765,
+    "recall_healthy": 0.5714285714285714,
+    "precision_copd": 0.8,
+    "precision_healthy": 0.4444444444444444,
+    "f1_copd": 0.75,
+    "f1_healthy": 0.5,
+    "macro_f1": 0.625,
+    "auroc": 0.5742296918767508,
+    "auprc_copd": 0.7370479062693027,
+    "tn": 12,
+    "fp": 9,
+    "fn": 15,
+    "tp": 36,
+    "threshold": 0.5,
+    "recall_negative": 0.5714285714285714,
+    "min_class_recall": 0.5714285714285714
+  },
+  "written_at_utc": "2026-10-01T16:56:28.351990+00:00"
+}

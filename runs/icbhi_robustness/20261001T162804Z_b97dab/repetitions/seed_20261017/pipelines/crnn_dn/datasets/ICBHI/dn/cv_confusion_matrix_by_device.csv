@@ -1,0 +1,9 @@
+device,real,predicho_Healthy,predicho_COPD
+AKGC417L,real_Healthy,0,0
+AKGC417L,real_COPD,1,23
+Litt3200,real_Healthy,0,0
+Litt3200,real_COPD,0,9
+LittC2SE,real_Healthy,0,0
+LittC2SE,real_COPD,2,13
+Meditron,real_Healthy,21,0
+Meditron,real_COPD,0,5

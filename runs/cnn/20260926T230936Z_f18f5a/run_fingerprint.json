@@ -1,0 +1,71 @@
+{
+  "code_files": {
+    "__init__.py": "e24fd4d997ffa76bc21f866980c1f31b67615fac86770bdf7a9e84db9929ff9d",
+    "artifacts.py": "127968f27563723e45a25ec05114c1cbb68039d7a193588389b1354f3998cbc5",
+    "build_master_folds.py": "3341e25164771730eeec3a78f20b783c274a3f9dae27fa63fdb4c111a70b5eb7",
+    "cnn_experiment.py": "297c5f7c95dceabdf17b2717ae66112ac4afc921ef214498848148fa826150aa",
+    "crnn_experiment.py": "d818dc5ba654f9f7a2702f72e23b8688c2b0a69a8aa47945441154de34ff79bb",
+    "data.py": "8638c0370f4e8e8c72d3d41503713bf634381074c995f31cc6ecc11ada9bde43",
+    "evaluation.py": "a763e5cccba60dd526290ca0fb2553e7cbd21626bbc33c900e675c2d9648ec41",
+    "features/__init__.py": "11f1b12c50d140b5e874d6e9fd7426b58f1da0667a23dbddf91151cd83a8a467",
+    "features/acoustic.py": "a0effa4d3ac84c61cd9d9a2d15c9a1476b1faf3b8daeefbaf655d5647c31adff",
+    "features/logmel.py": "8bbcd1d455b2841bf54c94ff29c9a3dc65c72202ca0699c3599f8f043956b8c4",
+    "holdout_cnn.py": "5f762f463936fbbd16316dcb6e4525970f24acafdb581f6be54fc8ef7de0ab34",
+    "holdout_cv.py": "35f4273729af2c18019e31b5cecd5a1d1c205ee9e18ed65068e7805cd9bfd102",
+    "holdout_svm.py": "9395797a733fe5d80686f59b220b5aacc58c23731eb536c0ac33e63e3450b06e",
+    "models/__init__.py": "b32395548c8b2daf76902c7c4dc5c811e1cebd7cb3ee3f596b57628415a967f6",
+    "models/cnn.py": "ca1a0281219240531fef2a1fe0037646624fb004a19b8f3ec640ca4d81abd2e8",
+    "models/crnn.py": "d2b6566ec351acf6ec881041da7eb3b006b0b16e60d8e8c32aa4cc4d6b116110",
+    "models/svm_rbf.py": "3353cda50c7ab6eeec9cf916ed99730eb3c321b838a702448dee6f9a23e03e12",
+    "prepare_combined_task_data.py": "fe3ea5d0e8b86e705d85097eef6fc553e37933605c2666950ad1e5fa3357c7dd",
+    "prepare_task_data.py": "66fe45675ede202fbede6b19c2864a05edd2ad0c09533ba9d8acae5d2ffa6548",
+    "run_experiment.py": "37845118eabed530e898ee3f2afa38d5ae0a35ed2046f18294d7e9ca6dafc4da",
+    "splits.py": "5899b04b743d84d52036fb35e364a8f70d0b0150dcb2e898cf4afc7f2b9d4380"
+  },
+  "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+  "config_fingerprint": "520663785677bbe394441537ed1df917a26ae9d9b1348ccc779eb67020b0b13c",
+  "dataset_arg": "all",
+  "experiment_arg": "all",
+  "extra": {
+    "architecture": {
+      "channels": [
+        32,
+        64,
+        128,
+        256
+      ],
+      "class": "CopdCNN",
+      "hidden_units": 128,
+      "in_channels": 1,
+      "input_shape": [
+        1,
+        64,
+        309
+      ],
+      "kernel_size": 3,
+      "n_parameters": 1205921,
+      "pooling": "maxpool2x2 por bloque + media global"
+    },
+    "model": "cnn",
+    "smoke_test": false
+  },
+  "input_hashes": {
+    "COMBINED/cv/fold_00/segments.csv": "d8a4c08bade37910df6d50230b91c94098b9ed8806764f133008ad3e548fed16",
+    "COMBINED/cv/fold_00/segments_dn.npy": "2420a4c4e3aa45bea42534d1d5b668e6e48d81a4815d791014997309a4018770",
+    "COMBINED/cv/fold_00/segments_no_dn.npy": "9273e122197cc2c6f333254608d22ee5878f0a6558f55b2e5602b45e82a17259",
+    "COMBINED/cv/fold_01/segments.csv": "f6a6985b221426b6a901e1799369926b76ec33d82528cbe1e041910f2706086f",
+    "COMBINED/cv/fold_01/segments_dn.npy": "78bb63f894ceb9edddbdd685cdfc4bf6f8a203824b538915cf62fb295355aae4",
+    "COMBINED/cv/fold_01/segments_no_dn.npy": "c4eb3f95bd83920800ea9ddfcaac55ff195133db7aa9fe2eb1912e2351844d51",
+    "COMBINED/cv/fold_02/segments.csv": "587a8a54837cc1dd8ac5aec49e01030b81a1f8ed3b218579faa8013b50e7a0ce",
+    "COMBINED/cv/fold_02/segments_dn.npy": "11d6a6123f69a5eb0bf5a3fe2041d5fccde404c8d1eedbac59331e9e67f86b46",
+    "COMBINED/cv/fold_02/segments_no_dn.npy": "6d5aeecb9f5b414d78679926bbc316efb4f943057f485fd1cb04de3db3dacc17",
+    "COMBINED/cv/fold_03/segments.csv": "3a3bc9830fa869af36e824faf9422fb616f888804dd77835121e647a78b4f43b",
+    "COMBINED/cv/fold_03/segments_dn.npy": "20810216367362bfcdcf41a1a0654a94448d201f00194282ae234f94fbe559a6",
+    "COMBINED/cv/fold_03/segments_no_dn.npy": "9ef3c6e307c3b0f072aa3118bc04433d80f52e501913150d15176d599897f146",
+    "COMBINED/cv/fold_04/segments.csv": "5ea98935dee17bdde1825f4e91574b77bebb1bde376626cb96f341de5444b8fc",
+    "COMBINED/cv/fold_04/segments_dn.npy": "b2375e29f01c60e1a2702034bc1a25aaf02694f1a934d4e1084a264f3d6b173d",
+    "COMBINED/cv/fold_04/segments_no_dn.npy": "afdf616bc4df0388289db0f4ac21e8457cd890ad221238dabb6915541d2fefb5",
+    "holdout_splits.csv": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "holdout_splits_manifest.json": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7"
+  }
+}

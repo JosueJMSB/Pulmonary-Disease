@@ -1,0 +1,24 @@
+python: 3.12.3
+platform: Linux-6.8.0-139-generic-x86_64-with-glibc2.39
+numpy: 2.5.2
+pandas: 3.0.5
+scipy: 1.18.1
+sklearn: 1.9.0
+librosa: 0.11.0
+joblib: 1.6.0
+matplotlib: 3.11.2
+soundfile: 0.14.0
+git_commit: 5fb47600b211d494cdf8818ec7539eed2fed0c67
+git_dirty: True
+torch: 2.11.0+cu128
+torch_cuda: 12.8
+cuda_available: True
+cudnn_version: 91900
+cudnn_deterministic: True
+cudnn_benchmark: False
+deterministic_algorithms: True
+cublas_workspace_config: :4096:8
+device: cuda:0
+gpu_name: NVIDIA RTX A5500
+gpu_capability: 8.6
+gpu_total_memory_gib: 23.55

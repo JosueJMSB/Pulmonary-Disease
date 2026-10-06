@@ -1,0 +1,33 @@
+{
+  "selection_config_path": "modeling/configs/final_test/selected_pipelines.toml",
+  "selection_config_sha256": "b597df07a1863180ec75d3ebfade2a6f909384a76e1d5ba8e7516392e61162b8",
+  "threshold": 0.5,
+  "seed_base": 20260914,
+  "bootstrap": {
+    "n_resamples": 2000,
+    "confidence": 0.95,
+    "random_state": 20260914
+  },
+  "pipeline": {
+    "dataset": "FRAIWAN_Extended",
+    "architecture": "cnn",
+    "condition": "dn",
+    "branch": "dn",
+    "reference_config": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+    "hyperparameters": {
+      "lr": 0.001,
+      "dropout": 0.5,
+      "weight_decay": 1e-05,
+      "batch_size": 32
+    },
+    "epochs": 12,
+    "status": "approved",
+    "source_run_id": "20260926T193325Z_141939",
+    "source_config_index": 17,
+    "source_artifact": "cnn/20260926T193325Z_141939/datasets/FRAIWAN_Extended/dn/best_hyperparameters.json",
+    "source_artifact_sha256": "39c981002f16c635813e9116e6e87680ca0d224d6dc7dab032c934b0f379c153",
+    "robustness_run_id": "",
+    "device_review_path": "",
+    "device_review_sha256": ""
+  }
+}

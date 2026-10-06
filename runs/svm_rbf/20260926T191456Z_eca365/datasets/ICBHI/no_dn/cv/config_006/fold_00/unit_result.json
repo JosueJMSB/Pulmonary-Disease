@@ -1,0 +1,39 @@
+{
+  "model": "svm_rbf",
+  "dataset": "ICBHI",
+  "condition": "no_dn",
+  "config_index": 6,
+  "fold": 0,
+  "hyperparameters": {
+    "C": 0.1,
+    "gamma": 0.0001
+  },
+  "metrics": {
+    "n_patients": 15,
+    "accuracy": 0.8666666666666667,
+    "balanced_accuracy": 0.8500000000000001,
+    "recall_copd": 0.9,
+    "recall_healthy": 0.8,
+    "precision_copd": 0.9,
+    "precision_healthy": 0.8,
+    "f1_copd": 0.9,
+    "f1_healthy": 0.8,
+    "macro_f1": 0.8500000000000001,
+    "auroc": 0.96,
+    "auprc_copd": 0.9833333333333333,
+    "tn": 4,
+    "fp": 1,
+    "fn": 1,
+    "tp": 9,
+    "threshold": 0.0,
+    "recall_negative": 0.8,
+    "min_class_recall": 0.8
+  },
+  "best_epoch": null,
+  "epochs_run": null,
+  "stopped_early": null,
+  "seconds": 0.8248606179840863,
+  "n_train_patients": 57,
+  "n_val_patients": 15,
+  "n_val_segments": 929
+}

@@ -1,0 +1,2 @@
+device,n_patient_devices,n_copd,n_normal,both_classes,recall_copd,recall_normal,balanced_accuracy,macro_f1,auroc,auprc_copd,tn,fp,fn,tp,threshold
+Litt3200,34,7,27,True,0.8571428571428571,0.9629629629629629,0.91005291005291,0.91005291005291,0.9259259259259258,0.8399092970521542,26,1,1,6,0.5

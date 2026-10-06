@@ -1,0 +1,142 @@
+protocol = "holdout_cv_v3"
+
+[acoustic]
+sample_rate = 4000
+segment_length = 20000
+n_fft = 256
+win_length = 256
+hop_length = 64
+center = false
+window = "hann"
+band_low_hz = 50
+band_high_hz = 1800
+expected_frames = 309
+
+[logmel]
+n_mels = 64
+power = 2
+fmin = 50
+fmax = 1800
+htk = false
+norm = "slaney"
+ref = 1.0
+amin = 1e-10
+top_db = 80
+
+[mfcc]
+n_mfcc = 13
+delta_width = 9
+delta_order = 1
+delta2_order = 2
+
+[summary]
+statistics = ["mean", "std", "p10", "p90"]
+percentiles = [10, 90]
+
+[weights]
+normalize_to_mean_one = true
+
+[svm]
+kernel = "rbf"
+shrinking = true
+tol = 0.001
+cache_size_mb = 1024
+class_weight = "none"
+c_grid = [0.01, 0.1, 1, 10, 100, 1000]
+gamma_grid = ["scale", 0.0001, 0.001, 0.01, 0.1]
+decision_threshold = 0.0
+
+[seeds]
+base = 20260914
+
+[determinism]
+deterministic = true
+
+[selection]
+criteria = ["balanced_accuracy_mean", "macro_f1_mean", "min_class_recall_mean", "balanced_accuracy_std", "config_order"]
+
+[metrics]
+primary = "balanced_accuracy"
+descriptive = ["accuracy"]
+reported = ["accuracy", "balanced_accuracy", "recall_copd", "recall_negative", "macro_f1", "auroc", "auprc_copd", "confusion_matrix", "roc_curve", "pr_curve"]
+aggregation = ["fold_mean", "fold_std", "pooled"]
+
+[figures]
+dpi = 300
+formats = ["png", "pdf"]
+
+[paths]
+default_data_root = "preprocessing/data/holdout_calibrated"
+default_runs_root = "modeling/runs/holdout_final"
+default_cache_root = "modeling/cache/features_holdout"
+
+[holdout]
+split_csv = "modeling/data/holdout_splits.csv"
+split_manifest = "modeling/data/holdout_splits_manifest.json"
+n_splits = 5
+random_state = 20260914
+
+[outer_test]
+enabled = false
+
+[final_model]
+enabled = false
+
+[datasets]
+[datasets.ICBHI]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Healthy"
+negative_label_name = "Healthy"
+
+[datasets.FRAIWAN_Extended]
+positive_diagnosis = "COPD"
+negative_diagnosis = "Normal"
+negative_label_name = "Normal"
+
+[experiments]
+[experiments.main]
+description = "Condicion principal: sin denoising."
+
+[experiments.main.ICBHI]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.main.FRAIWAN_Extended]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+
+[experiments.denoising_ablation]
+description = "Comparacion emparejada no_dn vs dn, mismos folds internos."
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.ICBHI]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "no_dn"
+branch = "no_dn"
+dn_reliable_only = false
+reused_from_main = true
+
+[[experiments.denoising_ablation.FRAIWAN_Extended]]
+condition = "dn"
+branch = "dn"
+dn_reliable_only = false
+
+[condition_run]
+model = "svm_rbf"
+dataset = "FRAIWAN_Extended"
+condition = "dn"
+branch = "dn"
+augment = false
+hyperparameters_from = ""
+

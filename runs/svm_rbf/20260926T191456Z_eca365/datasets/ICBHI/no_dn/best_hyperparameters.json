@@ -1,0 +1,94 @@
+{
+  "protocol": "holdout_cv_v3",
+  "model": "svm_rbf",
+  "dataset": "ICBHI",
+  "condition": "no_dn",
+  "branch": "no_dn",
+  "augment": false,
+  "config_index": 7,
+  "hyperparameters": {
+    "C": 0.1,
+    "gamma": 0.001
+  },
+  "hyperparameters_source": "search",
+  "expected_folds": 5,
+  "fold_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "metrics": {
+    "fold_mean": {
+      "accuracy": 0.9438095238095239,
+      "balanced_accuracy": 0.93,
+      "recall_copd": 0.96,
+      "recall_negative": 0.9,
+      "macro_f1": 0.9312077294685992,
+      "min_class_recall": 0.86,
+      "auroc": 0.9854545454545456,
+      "auprc_copd": 0.9948484848484848
+    },
+    "fold_std": {
+      "accuracy": 0.059514284952259036,
+      "balanced_accuracy": 0.06471089552772392,
+      "recall_copd": 0.08944271909999157,
+      "recall_negative": 0.13693063937629152,
+      "macro_f1": 0.06761317159945533,
+      "min_class_recall": 0.12942179105544785,
+      "auroc": 0.013310500422133026,
+      "auprc_copd": 0.00474317449772679
+    },
+    "pooled": {
+      "accuracy": 0.9444444444444444,
+      "balanced_accuracy": 0.9327731092436975,
+      "recall_copd": 0.9607843137254902,
+      "recall_negative": 0.9047619047619048,
+      "macro_f1": 0.9327731092436975,
+      "min_class_recall": 0.9047619047619048,
+      "auroc": 0.9757236227824462,
+      "auprc_copd": 0.9908800743424226
+    }
+  },
+  "best_epochs_by_fold": null,
+  "median_best_epoch": null,
+  "selection": {
+    "criteria": [
+      "balanced_accuracy_mean",
+      "macro_f1_mean",
+      "min_class_recall_mean",
+      "balanced_accuracy_std",
+      "config_order"
+    ],
+    "criteria_applied": [
+      "balanced_accuracy_mean",
+      "macro_f1_mean",
+      "min_class_recall_mean",
+      "balanced_accuracy_std",
+      "config_order"
+    ],
+    "decided_by": "config_order",
+    "n_candidates": 30,
+    "n_complete_candidates": 30,
+    "n_incomplete_candidates": 0
+  },
+  "hashes": {
+    "config_sha256": "cb8ea5b0462e61fde442616220660e2ed54c83832a1b281d0fb87f6a24ed932b",
+    "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "data": {
+      "ICBHI/cv/fold_00/segments.csv": "267052261506f09883396714cc3d11b90d8fcfc50baf265c8c6287b77d66f3d3",
+      "ICBHI/cv/fold_00/segments_no_dn.npy": "8afbb6b044d3e4656d483fe5cf354aeceeb37eb26e28dbb8ae15b183d3e31c82",
+      "ICBHI/cv/fold_01/segments.csv": "62c9329839000161e7333e988726eb89d6541cca0e5b6a348ceeb18b807c5e49",
+      "ICBHI/cv/fold_01/segments_no_dn.npy": "15540e8d3cc1609ffb301e70eb2b444995eec3f06d1b01d67c4f7c20c28eac2b",
+      "ICBHI/cv/fold_02/segments.csv": "37d7cc00f82759f37f8f0d2938b50e8999f2ea104257fa4f251b6343c53a652a",
+      "ICBHI/cv/fold_02/segments_no_dn.npy": "2216c40cfc105c97eaa1a457b96693a3ff0d45e577815475fd9bf8764c4e6cea",
+      "ICBHI/cv/fold_03/segments.csv": "474f3eb13fd37402ba79f36e37f83fcd0a7bc611e92746a674f362c2dd53a7ba",
+      "ICBHI/cv/fold_03/segments_no_dn.npy": "188b401452fb365fac612ee11ff3d0f8430ef63008b62555e4df79ec6fbccf42",
+      "ICBHI/cv/fold_04/segments.csv": "48a912eb5974f3514ff72f97007e1057a1d2e9f727c44d7194399a6cca3abacd",
+      "ICBHI/cv/fold_04/segments_no_dn.npy": "2fa102b2f230b52580cb1247b52a32054d9a515490edc8f8de74f84cc758c226"
+    }
+  }
+}

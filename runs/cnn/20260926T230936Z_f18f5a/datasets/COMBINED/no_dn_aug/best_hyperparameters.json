@@ -1,0 +1,90 @@
+{
+  "protocol": "holdout_cv_v3",
+  "model": "cnn",
+  "dataset": "COMBINED",
+  "condition": "no_dn_aug",
+  "branch": "no_dn",
+  "augment": true,
+  "config_index": 4,
+  "hyperparameters": {
+    "lr": 0.0001,
+    "dropout": 0.4,
+    "weight_decay": 0.0001,
+    "batch_size": 32
+  },
+  "hyperparameters_source": "reused_from:no_dn",
+  "expected_folds": 5,
+  "fold_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "metrics": {
+    "fold_mean": {
+      "accuracy": 0.9441558441558442,
+      "balanced_accuracy": 0.9490093240093241,
+      "recall_copd": 0.8980186480186481,
+      "recall_negative": 1.0,
+      "macro_f1": 0.9439422172030868,
+      "min_class_recall": 0.8980186480186481,
+      "auroc": 0.9549650349650349,
+      "auprc_copd": 0.9773407148407148
+    },
+    "fold_std": {
+      "accuracy": 0.03897306211792478,
+      "balanced_accuracy": 0.03529732354191639,
+      "recall_copd": 0.07059464708383283,
+      "recall_negative": 0.0,
+      "macro_f1": 0.03919255849263561,
+      "min_class_recall": 0.07059464708383283,
+      "auroc": 0.05351754947575924,
+      "auprc_copd": 0.024383322852783187
+    },
+    "pooled": {
+      "accuracy": 0.9433962264150944,
+      "balanced_accuracy": 0.9482758620689655,
+      "recall_copd": 0.896551724137931,
+      "recall_negative": 1.0,
+      "macro_f1": 0.9433155080213904,
+      "min_class_recall": 0.896551724137931,
+      "auroc": 0.954382183908046,
+      "auprc_copd": 0.9755370415210664
+    }
+  },
+  "best_epochs_by_fold": {
+    "0": 24,
+    "1": 9,
+    "2": 12,
+    "3": 29,
+    "4": 29
+  },
+  "median_best_epoch": 24,
+  "selection": {
+    "criteria": [],
+    "criteria_applied": [],
+    "decided_by": "reused_from:no_dn",
+    "n_candidates": 1,
+    "n_complete_candidates": 1,
+    "n_incomplete_candidates": 0
+  },
+  "hashes": {
+    "config_sha256": "520663785677bbe394441537ed1df917a26ae9d9b1348ccc779eb67020b0b13c",
+    "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "data": {
+      "COMBINED/cv/fold_00/segments.csv": "d8a4c08bade37910df6d50230b91c94098b9ed8806764f133008ad3e548fed16",
+      "COMBINED/cv/fold_00/segments_no_dn.npy": "9273e122197cc2c6f333254608d22ee5878f0a6558f55b2e5602b45e82a17259",
+      "COMBINED/cv/fold_01/segments.csv": "f6a6985b221426b6a901e1799369926b76ec33d82528cbe1e041910f2706086f",
+      "COMBINED/cv/fold_01/segments_no_dn.npy": "c4eb3f95bd83920800ea9ddfcaac55ff195133db7aa9fe2eb1912e2351844d51",
+      "COMBINED/cv/fold_02/segments.csv": "587a8a54837cc1dd8ac5aec49e01030b81a1f8ed3b218579faa8013b50e7a0ce",
+      "COMBINED/cv/fold_02/segments_no_dn.npy": "6d5aeecb9f5b414d78679926bbc316efb4f943057f485fd1cb04de3db3dacc17",
+      "COMBINED/cv/fold_03/segments.csv": "3a3bc9830fa869af36e824faf9422fb616f888804dd77835121e647a78b4f43b",
+      "COMBINED/cv/fold_03/segments_no_dn.npy": "9ef3c6e307c3b0f072aa3118bc04433d80f52e501913150d15176d599897f146",
+      "COMBINED/cv/fold_04/segments.csv": "5ea98935dee17bdde1825f4e91574b77bebb1bde376626cb96f341de5444b8fc",
+      "COMBINED/cv/fold_04/segments_no_dn.npy": "afdf616bc4df0388289db0f4ac21e8457cd890ad221238dabb6915541d2fefb5"
+    }
+  }
+}

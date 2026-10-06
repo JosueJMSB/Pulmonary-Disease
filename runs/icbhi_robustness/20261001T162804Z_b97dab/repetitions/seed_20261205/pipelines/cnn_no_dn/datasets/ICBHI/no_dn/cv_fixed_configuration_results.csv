@@ -1,0 +1,6 @@
+model,dataset,condition,negative_class,config_index,fold,status,lr,dropout,weight_decay,batch_size,n_patients,accuracy,balanced_accuracy,recall_copd,recall_negative,precision_copd,f1_copd,macro_f1,min_class_recall,auroc,auprc_copd,tn,fp,fn,tp,threshold,best_epoch,epochs_run,stopped_early,seconds,error
+cnn,ICBHI,no_dn,Healthy,1,0,COMPLETED,0.0001,0.3,0.001,64,15,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9999999999999999,5,0,0,10,0.5,11,26,True,47.05077350300053,
+cnn,ICBHI,no_dn,Healthy,1,1,COMPLETED,0.0001,0.3,0.001,64,15,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,4,0,0,11,0.5,22,37,True,65.32120530399698,
+cnn,ICBHI,no_dn,Healthy,1,2,COMPLETED,0.0001,0.3,0.001,64,14,0.9285714285714286,0.95,0.9,1.0,1.0,0.9473684210526315,0.9181286549707601,0.9,0.975,0.9909090909090909,4,0,1,9,0.5,10,25,True,45.02269111399801,
+cnn,ICBHI,no_dn,Healthy,1,3,COMPLETED,0.0001,0.3,0.001,64,14,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9999999999999999,4,0,0,10,0.5,18,33,True,54.389598756999476,
+cnn,ICBHI,no_dn,Healthy,1,4,COMPLETED,0.0001,0.3,0.001,64,14,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9999999999999999,4,0,0,10,0.5,39,54,True,93.86198476500431,

@@ -1,0 +1,5 @@
+device,n_patient_devices,n_copd,n_control,both_classes,recall_copd,recall_control,balanced_accuracy,macro_f1,auroc,auprc_copd,tn,fp,fn,tp,threshold
+AKGC417L,24,24,0,False,0.9583333333333334,,,,,,0,0,1,23,0.5
+Litt3200,43,16,27,True,0.75,1.0,0.875,0.8940886699507389,0.9143518518518519,0.9124589490968802,27,0,4,12,0.5
+LittC2SE,15,15,0,False,1.0,,,,,,0,0,0,15,0.5
+Meditron,26,5,21,True,1.0,0.9523809523809523,0.9761904761904762,0.9423503325942351,0.9714285714285714,0.8766666666666667,20,1,0,5,0.5

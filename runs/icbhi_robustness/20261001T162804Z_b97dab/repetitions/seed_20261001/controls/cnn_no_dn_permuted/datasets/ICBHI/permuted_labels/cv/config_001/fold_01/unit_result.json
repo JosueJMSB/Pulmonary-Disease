@@ -1,0 +1,41 @@
+{
+  "model": "cnn",
+  "dataset": "ICBHI",
+  "condition": "permuted_labels",
+  "config_index": 1,
+  "fold": 1,
+  "hyperparameters": {
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 0.001,
+    "batch_size": 64
+  },
+  "metrics": {
+    "n_patients": 15,
+    "accuracy": 0.6666666666666666,
+    "balanced_accuracy": 0.6000000000000001,
+    "recall_copd": 0.8,
+    "recall_healthy": 0.4,
+    "precision_copd": 0.7272727272727273,
+    "precision_healthy": 0.5,
+    "f1_copd": 0.7619047619047619,
+    "f1_healthy": 0.4444444444444444,
+    "macro_f1": 0.6031746031746031,
+    "auroc": 0.46,
+    "auprc_copd": 0.6611796536796537,
+    "tn": 2,
+    "fp": 3,
+    "fn": 2,
+    "tp": 8,
+    "threshold": 0.5,
+    "recall_negative": 0.4,
+    "min_class_recall": 0.4
+  },
+  "best_epoch": 21,
+  "epochs_run": 36,
+  "stopped_early": true,
+  "seconds": 64.15271973799827,
+  "n_train_patients": 57,
+  "n_val_patients": 15,
+  "n_val_segments": 856
+}

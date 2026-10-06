@@ -1,0 +1,34 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "baseline": "device_only_logistic_regression",
+  "seed": 20261205,
+  "settings": {
+    "enabled": true,
+    "classifier": "logistic_regression",
+    "C": 1.0,
+    "class_weight": "balanced",
+    "solver": "liblinear"
+  },
+  "outer_test_accessed": false,
+  "pooled_metrics": {
+    "n_patients": 72,
+    "accuracy": 0.9305555555555556,
+    "balanced_accuracy": 0.9509803921568627,
+    "recall_copd": 0.9019607843137255,
+    "recall_healthy": 1.0,
+    "precision_copd": 1.0,
+    "precision_healthy": 0.8076923076923077,
+    "f1_copd": 0.9484536082474226,
+    "f1_healthy": 0.8936170212765957,
+    "macro_f1": 0.9210353147620092,
+    "auroc": 0.9519140989729225,
+    "auprc_copd": 0.9820986241931923,
+    "tn": 21,
+    "fp": 0,
+    "fn": 5,
+    "tp": 46,
+    "threshold": 0.5,
+    "recall_negative": 1.0,
+    "min_class_recall": 0.9019607843137255
+  }
+}

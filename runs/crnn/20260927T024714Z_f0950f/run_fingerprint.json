@@ -1,0 +1,111 @@
+{
+  "code_files": {
+    "__init__.py": "e24fd4d997ffa76bc21f866980c1f31b67615fac86770bdf7a9e84db9929ff9d",
+    "artifacts.py": "127968f27563723e45a25ec05114c1cbb68039d7a193588389b1354f3998cbc5",
+    "build_master_folds.py": "3341e25164771730eeec3a78f20b783c274a3f9dae27fa63fdb4c111a70b5eb7",
+    "cnn_experiment.py": "297c5f7c95dceabdf17b2717ae66112ac4afc921ef214498848148fa826150aa",
+    "crnn_experiment.py": "d818dc5ba654f9f7a2702f72e23b8688c2b0a69a8aa47945441154de34ff79bb",
+    "data.py": "8638c0370f4e8e8c72d3d41503713bf634381074c995f31cc6ecc11ada9bde43",
+    "evaluation.py": "a763e5cccba60dd526290ca0fb2553e7cbd21626bbc33c900e675c2d9648ec41",
+    "features/__init__.py": "11f1b12c50d140b5e874d6e9fd7426b58f1da0667a23dbddf91151cd83a8a467",
+    "features/acoustic.py": "a0effa4d3ac84c61cd9d9a2d15c9a1476b1faf3b8daeefbaf655d5647c31adff",
+    "features/logmel.py": "8bbcd1d455b2841bf54c94ff29c9a3dc65c72202ca0699c3599f8f043956b8c4",
+    "holdout_cnn.py": "5f762f463936fbbd16316dcb6e4525970f24acafdb581f6be54fc8ef7de0ab34",
+    "holdout_cv.py": "35f4273729af2c18019e31b5cecd5a1d1c205ee9e18ed65068e7805cd9bfd102",
+    "holdout_svm.py": "9395797a733fe5d80686f59b220b5aacc58c23731eb536c0ac33e63e3450b06e",
+    "models/__init__.py": "b32395548c8b2daf76902c7c4dc5c811e1cebd7cb3ee3f596b57628415a967f6",
+    "models/cnn.py": "ca1a0281219240531fef2a1fe0037646624fb004a19b8f3ec640ca4d81abd2e8",
+    "models/crnn.py": "d2b6566ec351acf6ec881041da7eb3b006b0b16e60d8e8c32aa4cc4d6b116110",
+    "models/svm_rbf.py": "3353cda50c7ab6eeec9cf916ed99730eb3c321b838a702448dee6f9a23e03e12",
+    "prepare_combined_task_data.py": "fe3ea5d0e8b86e705d85097eef6fc553e37933605c2666950ad1e5fa3357c7dd",
+    "prepare_task_data.py": "66fe45675ede202fbede6b19c2864a05edd2ad0c09533ba9d8acae5d2ffa6548",
+    "run_experiment.py": "37845118eabed530e898ee3f2afa38d5ae0a35ed2046f18294d7e9ca6dafc4da",
+    "splits.py": "5899b04b743d84d52036fb35e364a8f70d0b0150dcb2e898cf4afc7f2b9d4380"
+  },
+  "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+  "config_fingerprint": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f",
+  "dataset_arg": "all",
+  "experiment_arg": "all",
+  "extra": {
+    "architecture": {
+      "attention_dim": 64,
+      "channels": [
+        32,
+        64,
+        128,
+        128
+      ],
+      "class": "CopdCRNN",
+      "gru_dropout": 0.2,
+      "gru_hidden": 128,
+      "gru_layers": 2,
+      "head_hidden": 128,
+      "in_channels": 1,
+      "input_shape": [
+        1,
+        64,
+        309
+      ],
+      "n_parameters": 1192482,
+      "note": "pesos de atencion = en que pasos se apoyo el modelo; no localizacion clinica",
+      "pool_sizes": [
+        [
+          2,
+          2
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "projection_dim": 128,
+      "recurrent_output_dim": 256,
+      "sequence_steps": 77,
+      "step_ms": 64.0
+    },
+    "model": "crnn",
+    "smoke_test": false
+  },
+  "input_hashes": {
+    "FRAIWAN_Extended/cv/fold_00/segments.csv": "e2d5c86e4a3926c43251bbd4c9ab19189c1ceca0f9138561a57937bea476e8b5",
+    "FRAIWAN_Extended/cv/fold_00/segments_dn.npy": "1a87cb1b8d3c06dabc06a7c727efefa528722078dac8cf866ccba516b91a48d2",
+    "FRAIWAN_Extended/cv/fold_00/segments_no_dn.npy": "807383a5cbb8feb5f4a25d71c2fa20c59cc1bd600aaf5c501f951ddca5106f38",
+    "FRAIWAN_Extended/cv/fold_01/segments.csv": "a85451d22eaa0764c796a79431deafb6ff9878a2d59b43d70ee6bc5b3b5f5a0c",
+    "FRAIWAN_Extended/cv/fold_01/segments_dn.npy": "8ba7d8fd88f11244a9f25f89d989f479fdd825529ceeaf668ccb94aee4d98c80",
+    "FRAIWAN_Extended/cv/fold_01/segments_no_dn.npy": "ae1ced543a454f9ae27b882794c319ff30d804793b7be6b2001fd9caf90eafcb",
+    "FRAIWAN_Extended/cv/fold_02/segments.csv": "9443a6c41a1daead563d75bb201b7c1549c1f0e26ed34c9f32ea3834455095ff",
+    "FRAIWAN_Extended/cv/fold_02/segments_dn.npy": "e98783663a520434caa790fb310b7d2a28372872da90a1bd1252e786d973068a",
+    "FRAIWAN_Extended/cv/fold_02/segments_no_dn.npy": "43264bd34e839e016e365516b26a773bb476670e3e55b0ff204d8b819de7073b",
+    "FRAIWAN_Extended/cv/fold_03/segments.csv": "c0e1329652f624872ed04f825f29db8cde93db975955e1c34e667ea8efbc03ac",
+    "FRAIWAN_Extended/cv/fold_03/segments_dn.npy": "0db00eaf721c77cf8ffc23b5f0d4161a7eb9c4b4686faebc0bb78199c89f082e",
+    "FRAIWAN_Extended/cv/fold_03/segments_no_dn.npy": "e8ea8f4236504cf8fb8c1d65d37e1c180c42370945366676eb4bf06b2f049ce7",
+    "FRAIWAN_Extended/cv/fold_04/segments.csv": "a643d110d82f0b2351fb89575c7c58f338541d2458dcf27a54842be978373152",
+    "FRAIWAN_Extended/cv/fold_04/segments_dn.npy": "9bb3ac6d274e2474e2300351d10c0a1eeb10de62e0e445fd56909e44cc83f0cb",
+    "FRAIWAN_Extended/cv/fold_04/segments_no_dn.npy": "1fbb3820c4ebaf173ee6e5694d995ccd2601a7db4765fc871f0aad52b355e52a",
+    "ICBHI/cv/fold_00/segments.csv": "267052261506f09883396714cc3d11b90d8fcfc50baf265c8c6287b77d66f3d3",
+    "ICBHI/cv/fold_00/segments_dn.npy": "15bfe8792286a5c95ed174eb468601d2cb08123d5894c2ce12375d87c8031c32",
+    "ICBHI/cv/fold_00/segments_no_dn.npy": "8afbb6b044d3e4656d483fe5cf354aeceeb37eb26e28dbb8ae15b183d3e31c82",
+    "ICBHI/cv/fold_01/segments.csv": "62c9329839000161e7333e988726eb89d6541cca0e5b6a348ceeb18b807c5e49",
+    "ICBHI/cv/fold_01/segments_dn.npy": "d63c43a8d2e02378a37c130b2b542decf28377372af0ed7599f951213b84c5e0",
+    "ICBHI/cv/fold_01/segments_no_dn.npy": "15540e8d3cc1609ffb301e70eb2b444995eec3f06d1b01d67c4f7c20c28eac2b",
+    "ICBHI/cv/fold_02/segments.csv": "37d7cc00f82759f37f8f0d2938b50e8999f2ea104257fa4f251b6343c53a652a",
+    "ICBHI/cv/fold_02/segments_dn.npy": "59111e6ce881c2fd07afea58b3fa6403e64f77b0985712bf9d2324da7e72b8e2",
+    "ICBHI/cv/fold_02/segments_no_dn.npy": "2216c40cfc105c97eaa1a457b96693a3ff0d45e577815475fd9bf8764c4e6cea",
+    "ICBHI/cv/fold_03/segments.csv": "474f3eb13fd37402ba79f36e37f83fcd0a7bc611e92746a674f362c2dd53a7ba",
+    "ICBHI/cv/fold_03/segments_dn.npy": "1cd6aa15f00eff6608585a5108d29aff6d01c8bb6fc1584e5add2c4663d5c825",
+    "ICBHI/cv/fold_03/segments_no_dn.npy": "188b401452fb365fac612ee11ff3d0f8430ef63008b62555e4df79ec6fbccf42",
+    "ICBHI/cv/fold_04/segments.csv": "48a912eb5974f3514ff72f97007e1057a1d2e9f727c44d7194399a6cca3abacd",
+    "ICBHI/cv/fold_04/segments_dn.npy": "63b9a006ff92d3cd24ffd92c7307c15f9dab3beb0fd9a206addc490c718305ed",
+    "ICBHI/cv/fold_04/segments_no_dn.npy": "2fa102b2f230b52580cb1247b52a32054d9a515490edc8f8de74f84cc758c226",
+    "holdout_splits.csv": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "holdout_splits_manifest.json": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7"
+  }
+}

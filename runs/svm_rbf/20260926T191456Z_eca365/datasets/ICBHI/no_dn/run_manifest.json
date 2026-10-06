@@ -1,0 +1,54 @@
+{
+  "protocol": "holdout_cv_v3",
+  "model": "svm_rbf",
+  "dataset": "ICBHI",
+  "condition": "no_dn",
+  "branch": "no_dn",
+  "augment": false,
+  "status": "COMPLETED",
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "git": {
+    "commit": "5fb47600b211d494cdf8818ec7539eed2fed0c67",
+    "dirty": true
+  },
+  "written_at_utc": "2026-09-26T19:19:16.072451+00:00",
+  "run_id": "20260926T191456Z_eca365",
+  "smoke_test": false,
+  "resumed": false,
+  "fold_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "split": {
+    "n_splits": 5,
+    "n_development_patients": 72,
+    "seed": 20260914
+  },
+  "hashes": {
+    "config_sha256": "cb8ea5b0462e61fde442616220660e2ed54c83832a1b281d0fb87f6a24ed932b",
+    "code_sha256": "e96e6b4e660aff184a08ef7dafa192272e051b1d7b7283c5eae9c8742aa45e13",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "data": {
+      "ICBHI/cv/fold_00/segments.csv": "267052261506f09883396714cc3d11b90d8fcfc50baf265c8c6287b77d66f3d3",
+      "ICBHI/cv/fold_00/segments_no_dn.npy": "8afbb6b044d3e4656d483fe5cf354aeceeb37eb26e28dbb8ae15b183d3e31c82",
+      "ICBHI/cv/fold_01/segments.csv": "62c9329839000161e7333e988726eb89d6541cca0e5b6a348ceeb18b807c5e49",
+      "ICBHI/cv/fold_01/segments_no_dn.npy": "15540e8d3cc1609ffb301e70eb2b444995eec3f06d1b01d67c4f7c20c28eac2b",
+      "ICBHI/cv/fold_02/segments.csv": "37d7cc00f82759f37f8f0d2938b50e8999f2ea104257fa4f251b6343c53a652a",
+      "ICBHI/cv/fold_02/segments_no_dn.npy": "2216c40cfc105c97eaa1a457b96693a3ff0d45e577815475fd9bf8764c4e6cea",
+      "ICBHI/cv/fold_03/segments.csv": "474f3eb13fd37402ba79f36e37f83fcd0a7bc611e92746a674f362c2dd53a7ba",
+      "ICBHI/cv/fold_03/segments_no_dn.npy": "188b401452fb365fac612ee11ff3d0f8430ef63008b62555e4df79ec6fbccf42",
+      "ICBHI/cv/fold_04/segments.csv": "48a912eb5974f3514ff72f97007e1057a1d2e9f727c44d7194399a6cca3abacd",
+      "ICBHI/cv/fold_04/segments_no_dn.npy": "2fa102b2f230b52580cb1247b52a32054d9a515490edc8f8de74f84cc758c226"
+    }
+  }
+}

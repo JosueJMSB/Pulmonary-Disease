@@ -1,0 +1,4 @@
+statistic,n,accuracy,balanced_accuracy,recall_copd,recall_negative,macro_f1,min_class_recall,auroc,auprc_copd,model,dataset,condition
+fold_mean,5,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,cnn,ICBHI,dn
+fold_std,5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.1102230246251565e-16,cnn,ICBHI,dn
+pooled,72,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,cnn,ICBHI,dn

@@ -1,0 +1,11 @@
+{
+  "dataset": "ICBHI",
+  "condition": "no_dn",
+  "pipeline_fingerprint": "0483b1e693e9d84567247aec5ef3462d0c40562984fe7cf91a3841700b3673be",
+  "model_sha256": "6b19c83add00d1fbb57a46411767aa262142341ee84c991070c2f45a041b0a53",
+  "status": "COMPLETED",
+  "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+  "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+  "created_at_utc": "2026-10-02T15:14:41.471143+00:00",
+  "updated_at_utc": "2026-10-02T15:14:54.745143+00:00"
+}

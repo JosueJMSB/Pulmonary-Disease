@@ -1,0 +1,6 @@
+class,precision,recall,f1-score,support
+Healthy,1.0,1.0,1.0,21.0
+COPD,1.0,1.0,1.0,51.0
+accuracy,1.0,1.0,1.0,1.0
+macro avg,1.0,1.0,1.0,72.0
+weighted avg,1.0,1.0,1.0,72.0

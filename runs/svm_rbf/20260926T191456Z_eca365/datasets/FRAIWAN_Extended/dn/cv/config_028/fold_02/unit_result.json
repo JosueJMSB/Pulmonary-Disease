@@ -1,0 +1,39 @@
+{
+  "model": "svm_rbf",
+  "dataset": "FRAIWAN_Extended",
+  "condition": "dn",
+  "config_index": 28,
+  "fold": 2,
+  "hyperparameters": {
+    "C": 1000.0,
+    "gamma": 0.01
+  },
+  "metrics": {
+    "n_patients": 7,
+    "accuracy": 0.8571428571428571,
+    "balanced_accuracy": 0.5,
+    "recall_copd": 0.0,
+    "recall_normal": 1.0,
+    "precision_copd": 0.0,
+    "precision_normal": 0.8571428571428571,
+    "f1_copd": 0.0,
+    "f1_normal": 0.9230769230769231,
+    "macro_f1": 0.46153846153846156,
+    "auroc": 0.16666666666666663,
+    "auprc_copd": 0.16666666666666666,
+    "tn": 6,
+    "fp": 0,
+    "fn": 1,
+    "tp": 0,
+    "threshold": 0.0,
+    "recall_negative": 1.0,
+    "min_class_recall": 0.0
+  },
+  "best_epoch": null,
+  "epochs_run": null,
+  "stopped_early": null,
+  "seconds": 0.0026940229581668973,
+  "n_train_patients": 27,
+  "n_val_patients": 7,
+  "n_val_segments": 44
+}

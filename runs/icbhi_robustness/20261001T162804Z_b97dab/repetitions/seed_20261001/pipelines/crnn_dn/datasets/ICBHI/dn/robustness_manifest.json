@@ -1,0 +1,63 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "diagnostic_only": true,
+  "negative_control": false,
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "seed": 20261001,
+  "pipeline": "crnn_dn",
+  "architecture": "crnn",
+  "condition": "dn",
+  "branch": "dn",
+  "augment": false,
+  "frozen_hyperparameters": {
+    "config_index": 8,
+    "lr": 0.0003,
+    "dropout": 0.3,
+    "weight_decay": 0.0001,
+    "batch_size": 64
+  },
+  "source_selection": {
+    "path": "/home/jsivincha/pulmonary_workspace/runs/crnn/20260927T024714Z_f0950f/datasets/ICBHI/dn/best_hyperparameters.json",
+    "sha256": "13dd8cab63b4935b2360bb3574749b20097cc760d7c3acfcf6df406f99eb8192",
+    "source_run_id": "20260927T024714Z_f0950f",
+    "source_config_sha256": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f",
+    "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/crnn_v3.toml",
+    "architecture_config_file_sha256": "b4f74cc416acf880fe9ea216d90829241e0c67e0e7e914089be476b85e51fc36",
+    "architecture_config_fingerprint": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f"
+  },
+  "best_epochs_by_fold": {
+    "0": 19,
+    "1": 12,
+    "2": 16,
+    "3": 16,
+    "4": 3
+  },
+  "pooled_metrics": {
+    "n_patients": 72,
+    "accuracy": 0.9722222222222222,
+    "balanced_accuracy": 0.9663865546218486,
+    "recall_copd": 0.9803921568627451,
+    "recall_healthy": 0.9523809523809523,
+    "precision_copd": 0.9803921568627451,
+    "precision_healthy": 0.9523809523809523,
+    "f1_copd": 0.9803921568627451,
+    "f1_healthy": 0.9523809523809523,
+    "macro_f1": 0.9663865546218486,
+    "auroc": 0.9794584500466852,
+    "auprc_copd": 0.9913546829770328,
+    "tn": 20,
+    "fp": 1,
+    "fn": 1,
+    "tp": 50,
+    "threshold": 0.5,
+    "recall_negative": 0.9523809523809523,
+    "min_class_recall": 0.9523809523809523
+  },
+  "written_at_utc": "2026-10-01T16:45:02.411088+00:00"
+}

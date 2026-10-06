@@ -1,0 +1,11 @@
+{
+  "opened_at_utc": "2026-10-02T15:15:51.522049+00:00",
+  "dataset": "COMBINED",
+  "condition": "dn",
+  "architecture": "cnn",
+  "selection_status": "approved",
+  "pipeline_fingerprint": "392758e5160c58e975c1f64b7145a82ba2cbcbd1d03b3786f57b09fecac5598c",
+  "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+  "n_test_patients": 27,
+  "n_test_segments": 1634
+}

@@ -1,0 +1,51 @@
+{
+  "protocol": "holdout_final_v1",
+  "dataset": "ICBHI",
+  "condition": "no_dn",
+  "architecture": "cnn",
+  "branch": "no_dn",
+  "hyperparameters": {
+    "lr": 0.0001,
+    "dropout": 0.3,
+    "weight_decay": 0.001,
+    "batch_size": 64
+  },
+  "epochs": 17,
+  "threshold": 0.5,
+  "seed_base": 20260914,
+  "seed_parts": [
+    "ICBHI",
+    "no_dn",
+    "final"
+  ],
+  "n_train_patients": 72,
+  "n_train_segments": 4715,
+  "n_test_patients": 18,
+  "n_test_segments": 1580,
+  "source_run_id": "20260926T193325Z_141939",
+  "source_config_index": 1,
+  "source_artifact": "cnn/20260926T193325Z_141939/datasets/ICBHI/no_dn/best_hyperparameters.json",
+  "robustness_run_id": "20261001T162804Z_b97dab",
+  "warnings": [],
+  "hashes": {
+    "pipeline_fingerprint": "0483b1e693e9d84567247aec5ef3462d0c40562984fe7cf91a3841700b3673be",
+    "selection_config_sha256": "b597df07a1863180ec75d3ebfade2a6f909384a76e1d5ba8e7516392e61162b8",
+    "split_csv_sha256": "8cbd701697fa24717bdffa03d18e04b56708998ead00f8c07d64f3ec0932484b",
+    "split_manifest_sha256": "e0e77711c7c8dcaec5df443f856c236e73ca67adf2c042744d61475a14b7cbc7",
+    "source_artifact_sha256": "894ce0cb165c4ac62429a1d5f39bf71b2c92e93e3ba06a59d3d6ad5aff369798",
+    "reference_config_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+    "code_sha256": "b04acb4c24242f1941df8eed2e088a1792c7efb452e373f33203015266ded188",
+    "final_model_sha256": "6b19c83add00d1fbb57a46411767aa262142341ee84c991070c2f45a041b0a53",
+    "final_data": {
+      "ICBHI/final/segments.csv": "2b96d65ed31c041fabe5aed3b3deaea605b7cf62b4f52bc47720a77e5dbaa9b3",
+      "ICBHI/final/segments_no_dn.npy": "df77d57955cee98095ce27a1b09d774b51eb6555741b96a497128000f2e73601",
+      "ICBHI/final/manifest.json": "d938b9d1547571d70d1f47958c79ba3ad55ae05c8d803cfefea847501e8d19a1",
+      "ICBHI/final/preprocessing_params.json": "0c1cd875989489651c244193678e59a016698cbf665523ab06ab479abc3ca75d"
+    }
+  },
+  "git": {
+    "commit": "c8775432b6efcd43195889f1d60641d43b4499ec",
+    "dirty": true
+  },
+  "created_at_utc": "2026-10-02T15:14:41.992209+00:00"
+}

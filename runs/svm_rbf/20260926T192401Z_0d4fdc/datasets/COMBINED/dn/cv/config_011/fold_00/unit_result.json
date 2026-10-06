@@ -1,0 +1,39 @@
+{
+  "model": "svm_rbf",
+  "dataset": "COMBINED",
+  "condition": "dn",
+  "config_index": 11,
+  "fold": 0,
+  "hyperparameters": {
+    "C": 1.0,
+    "gamma": 0.0001
+  },
+  "metrics": {
+    "n_patients": 22,
+    "accuracy": 0.7727272727272727,
+    "balanced_accuracy": 0.7833333333333333,
+    "recall_copd": 0.6666666666666666,
+    "recall_control": 0.9,
+    "precision_copd": 0.8888888888888888,
+    "precision_control": 0.6923076923076923,
+    "f1_copd": 0.7619047619047619,
+    "f1_control": 0.782608695652174,
+    "macro_f1": 0.7722567287784678,
+    "auroc": 0.9083333333333333,
+    "auprc_copd": 0.9337454212454214,
+    "tn": 9,
+    "fp": 1,
+    "fn": 4,
+    "tp": 8,
+    "threshold": 0.0,
+    "recall_negative": 0.9,
+    "min_class_recall": 0.6666666666666666
+  },
+  "best_epoch": null,
+  "epochs_run": null,
+  "stopped_early": null,
+  "seconds": 0.5659237500512972,
+  "n_train_patients": 84,
+  "n_val_patients": 22,
+  "n_val_segments": 959
+}

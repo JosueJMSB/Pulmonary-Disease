@@ -1,0 +1,26 @@
+{
+  "protocol": "icbhi_robustness_v1",
+  "run_id": "20261001T162804Z_b97dab",
+  "status": "COMPLETED",
+  "seeds": [
+    20261001,
+    20261017,
+    20261103,
+    20261119,
+    20261205
+  ],
+  "pipelines": [
+    "cnn_no_dn",
+    "cnn_dn",
+    "crnn_dn",
+    "crnn_no_dn_aug"
+  ],
+  "outer_test": {
+    "enabled": false,
+    "accessed": false
+  },
+  "final_model": {
+    "enabled": false
+  },
+  "interpretation": "Diagnostico de robustez; no selecciona automaticamente un modelo ni autoriza abrir el test externo."
+}

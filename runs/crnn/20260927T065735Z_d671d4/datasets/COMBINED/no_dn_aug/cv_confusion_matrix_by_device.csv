@@ -1,0 +1,9 @@
+device,real,predicho_Control,predicho_COPD
+AKGC417L,real_Control,0,0
+AKGC417L,real_COPD,0,24
+Litt3200,real_Control,26,1
+Litt3200,real_COPD,4,12
+LittC2SE,real_Control,0,0
+LittC2SE,real_COPD,0,15
+Meditron,real_Control,20,1
+Meditron,real_COPD,0,5

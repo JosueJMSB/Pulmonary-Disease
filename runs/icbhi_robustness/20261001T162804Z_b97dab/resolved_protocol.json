@@ -1,0 +1,153 @@
+{
+  "protocol_path": "/home/jsivincha/Pulmonary-Disease/modeling/diagnostics/icbhi_robustness/protocol.toml",
+  "protocol": {
+    "protocol": "icbhi_robustness_v1",
+    "dataset": "ICBHI",
+    "n_splits": 5,
+    "repetition_seeds": [
+      20261001,
+      20261017,
+      20261103,
+      20261119,
+      20261205
+    ],
+    "stratification": "target_label+collapsed_device_signature",
+    "paths": {
+      "original_split_csv": "modeling/data/holdout_splits.csv",
+      "original_split_manifest": "modeling/data/holdout_splits_manifest.json",
+      "cnn_config": "modeling/configs/holdout_final/cnn_v3.toml",
+      "crnn_config": "modeling/configs/holdout_final/crnn_v3.toml"
+    },
+    "evaluation": {
+      "decision_threshold": 0.5,
+      "negative_label_name": "Healthy"
+    },
+    "device_baseline": {
+      "enabled": true,
+      "classifier": "logistic_regression",
+      "C": 1.0,
+      "class_weight": "balanced",
+      "solver": "liblinear"
+    },
+    "permutation_control": {
+      "enabled": true,
+      "pipeline_id": "cnn_no_dn",
+      "max_shuffle_attempts": 10000
+    },
+    "pipelines": [
+      {
+        "id": "cnn_no_dn",
+        "architecture": "cnn",
+        "condition": "no_dn",
+        "branch": "no_dn",
+        "augment": false,
+        "source_run_id": "20260926T193325Z_141939",
+        "source_config_index": 1,
+        "source_median_best_epoch": 17,
+        "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+        "lr": 0.0001,
+        "dropout": 0.3,
+        "weight_decay": 0.001,
+        "batch_size": 64
+      },
+      {
+        "id": "cnn_dn",
+        "architecture": "cnn",
+        "condition": "dn",
+        "branch": "dn",
+        "augment": false,
+        "source_run_id": "20260926T193325Z_141939",
+        "source_config_index": 0,
+        "source_median_best_epoch": 9,
+        "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+        "lr": 0.0001,
+        "dropout": 0.3,
+        "weight_decay": 1e-05,
+        "batch_size": 16
+      },
+      {
+        "id": "crnn_dn",
+        "architecture": "crnn",
+        "condition": "dn",
+        "branch": "dn",
+        "augment": false,
+        "source_run_id": "20260927T024714Z_f0950f",
+        "source_config_index": 8,
+        "source_median_best_epoch": 7,
+        "source_config_sha256": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f",
+        "lr": 0.0003,
+        "dropout": 0.3,
+        "weight_decay": 0.0001,
+        "batch_size": 64
+      },
+      {
+        "id": "crnn_no_dn_aug",
+        "architecture": "crnn",
+        "condition": "no_dn_aug",
+        "branch": "no_dn",
+        "augment": true,
+        "source_run_id": "20260927T024714Z_f0950f",
+        "source_config_index": 5,
+        "source_median_best_epoch": 10,
+        "source_config_sha256": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f",
+        "lr": 0.0001,
+        "dropout": 0.4,
+        "weight_decay": 0.001,
+        "batch_size": 64
+      }
+    ]
+  },
+  "source_selections": {
+    "cnn_no_dn": {
+      "path": "/home/jsivincha/pulmonary_workspace/runs/cnn/20260926T193325Z_141939/datasets/ICBHI/no_dn/best_hyperparameters.json",
+      "sha256": "894ce0cb165c4ac62429a1d5f39bf71b2c92e93e3ba06a59d3d6ad5aff369798",
+      "source_run_id": "20260926T193325Z_141939",
+      "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+      "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+      "architecture_config_file_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+      "architecture_config_fingerprint": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358"
+    },
+    "cnn_dn": {
+      "path": "/home/jsivincha/pulmonary_workspace/runs/cnn/20260926T193325Z_141939/datasets/ICBHI/dn/best_hyperparameters.json",
+      "sha256": "9971f25814ba8501596cf796e983080f428aac5d89b2136d0b26b74575d07e38",
+      "source_run_id": "20260926T193325Z_141939",
+      "source_config_sha256": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358",
+      "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/cnn_v3.toml",
+      "architecture_config_file_sha256": "285f23b7cd648ffee7daea436da6836eaf888473b2b0f4e6db2e0b6509833720",
+      "architecture_config_fingerprint": "f1911af4c0da104f70cadde6ed909145b17fc25c30c4bb4900fba54570e37358"
+    },
+    "crnn_dn": {
+      "path": "/home/jsivincha/pulmonary_workspace/runs/crnn/20260927T024714Z_f0950f/datasets/ICBHI/dn/best_hyperparameters.json",
+      "sha256": "13dd8cab63b4935b2360bb3574749b20097cc760d7c3acfcf6df406f99eb8192",
+      "source_run_id": "20260927T024714Z_f0950f",
+      "source_config_sha256": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f",
+      "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/crnn_v3.toml",
+      "architecture_config_file_sha256": "b4f74cc416acf880fe9ea216d90829241e0c67e0e7e914089be476b85e51fc36",
+      "architecture_config_fingerprint": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f"
+    },
+    "crnn_no_dn_aug": {
+      "path": "/home/jsivincha/pulmonary_workspace/runs/crnn/20260927T024714Z_f0950f/datasets/ICBHI/no_dn_aug/best_hyperparameters.json",
+      "sha256": "de702d5b30b6d11bb89abdf00e184078f879d09659868d07226f0156324968ce",
+      "source_run_id": "20260927T024714Z_f0950f",
+      "source_config_sha256": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f",
+      "architecture_config_path": "/home/jsivincha/Pulmonary-Disease/modeling/configs/holdout_final/crnn_v3.toml",
+      "architecture_config_file_sha256": "b4f74cc416acf880fe9ea216d90829241e0c67e0e7e914089be476b85e51fc36",
+      "architecture_config_fingerprint": "815d2b39f487fe502aa060a3be7f643c04e9ccc33018249923766227b36efb9f"
+    }
+  },
+  "cli": {
+    "protocol_config": null,
+    "workspace_root": "/home/jsivincha/pulmonary_workspace/icbhi_robustness",
+    "data_root": "/home/jsivincha/pulmonary_workspace/icbhi_robustness/data",
+    "cache_root": "/home/jsivincha/pulmonary_workspace/cache/icbhi_robustness",
+    "runs_root": "/home/jsivincha/pulmonary_workspace/runs",
+    "source_runs_root": "/home/jsivincha/pulmonary_workspace/runs",
+    "device": "cuda:0",
+    "num_workers": 0,
+    "dry_run": false,
+    "resume": null,
+    "only_seed": null,
+    "skip_permutation_control": false
+  },
+  "outer_test_accessed": false
+}
