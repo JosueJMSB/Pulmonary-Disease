@@ -456,11 +456,25 @@ def test_completed_pipeline_is_not_retrained_or_reevaluated(tmp_path, monkeypatc
 # --resume reutiliza predicciones ya calculadas, sin reentrenar
 # ---------------------------------------------------------------------------
 
-def _revert_publish_to_staging(run_root, dataset, condition):
+def _revert_publish_to_staging(run_root, dataset, condition, *, registry_status):
+    """Simula una ejecucion interrumpida ANTES de publicar: devuelve el
+    directorio publicado al staging y retrocede el registro externo de acceso
+    al test al estado que tendria en ese punto. Ese registro solo pasa a
+    COMPLETED despues de publicar, asi que dejarlo en COMPLETED describiria un
+    estado imposible que el guard de "COMPLETED sin publicacion" rechaza (ver
+    test_orphaned_completed_registry_without_publication_is_rejected)."""
+    assert registry_status in (core.TEST_ACCESS_STARTED, core.TEST_ACCESS_PREDICTIONS_WRITTEN)
     pdir = core.pipeline_dir(run_root, dataset, condition)
     staging = core.pipeline_staging_dir(run_root, dataset, condition)
     (pdir / "_SUCCESS").unlink()
     pdir.rename(staging)
+    record = core.read_test_access_record(run_root, dataset, condition)
+    core.write_test_access_record(
+        run_root, dataset, condition,
+        pipeline_fingerprint=record["pipeline_fingerprint"], model_sha256=record["model_sha256"],
+        status=registry_status, split_csv_sha256=record["split_csv_sha256"],
+        split_manifest_sha256=record["split_manifest_sha256"],
+    )
     return staging
 
 
@@ -470,7 +484,9 @@ def test_resume_reuses_existing_predictions_without_retraining(tmp_path, monkeyp
     first = _run(run_root, "FRAIWAN_Extended", selection_cfg, data_root, source_runs_root)
     assert first["status"] == core.STATUS_COMPLETED
 
-    staging = _revert_publish_to_staging(run_root, "FRAIWAN_Extended", "dn")
+    staging = _revert_publish_to_staging(
+        run_root, "FRAIWAN_Extended", "dn", registry_status=core.TEST_ACCESS_PREDICTIONS_WRITTEN,
+    )
     assert (staging / "test_segment_predictions.csv").is_file()
 
     calls = []
@@ -498,7 +514,10 @@ def test_resume_from_published_model_without_predictions_does_not_retrain(tmp_pa
     first = _run(run_root, "FRAIWAN_Extended", selection_cfg, data_root, source_runs_root)
     assert first["status"] == core.STATUS_COMPLETED
 
-    staging = _revert_publish_to_staging(run_root, "FRAIWAN_Extended", "dn")
+    # Interrumpida antes de escribir predicciones: el registro solo llego a STARTED.
+    staging = _revert_publish_to_staging(
+        run_root, "FRAIWAN_Extended", "dn", registry_status=core.TEST_ACCESS_STARTED,
+    )
     model_bytes_before = (staging / "final_model.pt").read_bytes()
     # Simular una interrupcion ANTES de escribir predicciones: se borran (el
     # modelo, normalization.json y training_history.csv, que son del
@@ -584,7 +603,9 @@ def test_resume_rejects_a_changed_codebase_and_leaves_staging_untouched(tmp_path
     run_root = _prepare_run_root(tmp_path)
     first = _run(run_root, "FRAIWAN_Extended", selection_cfg, data_root, source_runs_root)
     assert first["status"] == core.STATUS_COMPLETED
-    staging = _revert_publish_to_staging(run_root, "FRAIWAN_Extended", "dn")
+    staging = _revert_publish_to_staging(
+        run_root, "FRAIWAN_Extended", "dn", registry_status=core.TEST_ACCESS_PREDICTIONS_WRITTEN,
+    )
     before = (staging / "model_manifest.json").read_text(encoding="utf-8")
 
     monkeypatch.setattr(core, "code_fingerprint", lambda: {"code_sha256": "changed", "code_files": {}})
@@ -770,7 +791,9 @@ def test_predictions_without_model_ready_is_rejected(tmp_path):
     first = _run(run_root, "FRAIWAN_Extended", selection_cfg, data_root, source_runs_root)
     assert first["status"] == core.STATUS_COMPLETED
 
-    staging = _revert_publish_to_staging(run_root, "FRAIWAN_Extended", "dn")
+    staging = _revert_publish_to_staging(
+        run_root, "FRAIWAN_Extended", "dn", registry_status=core.TEST_ACCESS_PREDICTIONS_WRITTEN,
+    )
     (staging / core.MODEL_READY_MARKER).unlink()
 
     with pytest.raises(core.FinalTrainingError, match="falta el modelo listo"):
