@@ -54,9 +54,23 @@ modeling/
 ├── splits.py                Particion por paciente (calibracion + K-fold anidado)
 ├── evaluation.py            Agregacion, metricas, bootstrap (independiente del modelo)
 ├── artifacts.py             Runs, staging atomico, figuras, serializacion de modelos
-├── run_experiment.py        CLI unico
+├── runner/                  Comun a todos los modelos y protocolos
+│   ├── cli.py               Argumentos de la CLI y planificacion de condiciones
+│   ├── fingerprint.py       Huella de la ejecucion y verificacion de --resume
+│   ├── dry_run.py           Comprobaciones de --dry-run
+│   └── fold_markers.py      Marcas persistentes de fallo por fold
+├── protocols/               Orquestacion por protocolo (mismos nombres que configs/)
+│   ├── svm_common.py        Piezas de la SVM compartidas por ambos protocolos
+│   ├── cnn_common.py        Piezas de CNN/CRNN compartidas por ambos protocolos
+│   ├── oof_v1/              svm.py y cnn.py del protocolo oof_v1
+│   └── fold_aware_v2/       config.py, svm.py y cnn.py del protocolo fold-aware
+├── run_experiment.py        CLI unico: main() despacha a protocols/ y holdout_*
 └── prepare_task_data.py
 ```
+
+`run_experiment.py` y `cnn_experiment.py` solo conservan el despacho; los
+nombres que antes definian se reexportan desde `runner/` y `protocols/`, asi
+que `python -m modeling.run_experiment` y los imports existentes no cambian.
 
 `data.py`, `splits.py`, `evaluation.py` y `artifacts.py` no conocen la SVM:
 los reutilizaran la CNN y la CRNN cuando existan.
@@ -183,7 +197,7 @@ despues la version exacta instalada en `requirements-cnn.txt`.
 modeling/
 ├── configs/oof_v1/cnn.toml         Arquitectura, entrenamiento, busqueda, augmentation, condiciones
 ├── models/cnn.py            Red, normalizacion, SpecAugment, entrenamiento, fold, checkpoints
-├── cnn_experiment.py        Orquestacion de --model cnn (runs, resumen, modelo final)
+├── cnn_experiment.py        Despacho de --model cnn a protocols/{oof_v1,fold_aware_v2}/cnn.py
 └── data.py                  + cache Log-Mel por dataset/rama (sin dependencia de torch)
 ```
 
