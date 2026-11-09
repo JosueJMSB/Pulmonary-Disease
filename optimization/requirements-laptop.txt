@@ -1,0 +1,13 @@
+# Laptop (Windows): flujo WAV -> preprocesamiento -> ONNX Runtime -> decision.
+# NO incluye PyTorch: la inferencia no lo necesita (lo verifica check_env.py).
+# Instalar en un entorno nuevo:  pip install -r optimization/requirements-laptop.txt
+# Fije despues las versiones exactas obtenidas (pip freeze).
+onnxruntime>=1.18
+numpy>=2.0
+scipy>=1.13
+pandas>=2.2
+soundfile>=0.12
+librosa>=0.10
+scikit-learn>=1.5
+psutil>=5.9
+pytest>=8.0

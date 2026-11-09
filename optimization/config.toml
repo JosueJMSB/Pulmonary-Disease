@@ -1,0 +1,120 @@
+# Configuracion del Objetivo 3 (modelo ligero). Todas las rutas por defecto
+# son relativas a la raiz del repositorio y se reemplazan con la CLI o con
+# las variables de entorno (ver optimization/paths.py y README.md):
+#   --data-root   / PULMONARY_DATA_ROOT  -> <data_root>/<dataset>/final/
+#   --runs-root   / PULMONARY_RUNS_ROOT  -> <runs_root>/final_training/<run_id>/
+#   --output-root / PULMONARY_OPT_ROOT   -> salidas de optimization (por defecto <runs_root>/optimization)
+#
+# Los valores de [acceptance] se fijan ANTES de cualquier ejecucion. Su hash
+# se guarda al congelar cada INT8 y evaluate_test.py se niega a acceder al
+# test si cambiaron: el test nunca sirve para ajustar este criterio.
+
+[final_run]
+run_id = "20261002T151359Z_3edb43"
+
+[paths]
+default_data_root = "preprocessing/data/holdout_calibrated"
+default_runs_root = "runs"
+default_output_subdir = "optimization"
+# Subcarpeta, dentro de <output_root>, del registro de evaluaciones INT8 del
+# test. Es comun a todas las corridas de optimization.
+test_access_subdir = "_test_access"
+
+[[datasets]]
+name = "ICBHI"
+condition = "no_dn"
+branch = "no_dn"
+
+[[datasets]]
+name = "FRAIWAN_Extended"
+condition = "dn"
+branch = "dn"
+
+[[datasets]]
+name = "COMBINED"
+condition = "dn"
+branch = "dn"
+
+[model]
+expected_parameters = 1205921
+
+[export]
+opset = 17
+# false: exportador TorchScript (torch.onnx.export(..., dynamo=False)).
+# Si la version de PyTorch del servidor ya no lo admite, cambiar a true.
+dynamo = false
+input_name = "logmel"
+output_name = "logit"
+batch_size = 64
+
+# Paridad PyTorch -> ONNX FP32: tolerancia ESTRICTA y bloqueante.
+[parity_fp32]
+max_abs_logit = 1e-4
+max_abs_prob = 1e-5
+# 0 = todos los segmentos de desarrollo.
+max_segments = 0
+
+[quantization]
+format = "QDQ"
+activation_type = "QUInt8"
+weight_type = "QInt8"
+per_channel = true
+reduce_range = false
+calibration_method = "MinMax"   # MinMax | Entropy | Percentile
+calibration_segments = 512
+calibration_batch_size = 16
+seed = 20261104
+# Lista vacia = cuantizar todos los operadores que ONNX Runtime admita.
+op_types_to_quantize = []
+run_preprocess = true
+
+# Criterio de aceptacion en DESARROLLO (INT8 frente a FP32, por paciente).
+# Perdida maxima permitida = metrica_FP32 - metrica_INT8.
+[acceptance]
+max_drop_balanced_accuracy = 0.05
+max_drop_recall_copd = 0.05
+max_drop_recall_negative = 0.05
+
+# Paridad del flujo WAV -> decision frente a los segmentos ya almacenados.
+[pipeline_check]
+n_recordings = 20
+seed = 20261104
+max_abs_waveform = 1e-5
+max_abs_logmel_db = 1e-3
+max_abs_prob_fp32 = 1e-4
+
+[inference]
+# Hilos para inferencias que no son de benchmark (paridad, desarrollo, test).
+threads = 4
+batch_size = 64
+
+[benchmark]
+threads = [1, 2, 4]
+warmup = 20
+repetitions = 200
+latency_segments = 64
+e2e_recordings = 20
+e2e_repetitions = 5
+seed = 20261104
+# Hilos usados en las mediciones de memoria.
+memory_threads = 1
+
+# Indicadores originales (compromisos). Porcentajes relativos a ONNX FP32.
+[iov]
+min_size_reduction_pct = 5.0
+min_memory_reduction_pct = 5.0
+max_time_increase_pct = 30.0
+max_performance_drop_points = 20.0
+# Metricas por paciente que debe cumplir el IOV de caida de desempeno, cada
+# una POR SEPARADO (.pt publicado -> INT8, en puntos porcentuales). El IOV
+# solo se marca CUMPLE si todas estan dentro del limite.
+performance_metrics = ["balanced_accuracy", "recall_copd", "recall_negative"]
+
+# Metas mas estrictas: hipotesis que se comprueban, no promesas.
+# max_ba_drop_points se aplica SOLO a balanced accuracy.
+[goals]
+min_size_reduction_pct = 50.0
+max_model_file_mb = 10.0
+min_memory_reduction_pct = 50.0
+max_pipeline_peak_mb = 100.0
+max_ba_drop_points = 5.0

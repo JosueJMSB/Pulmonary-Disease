@@ -1,0 +1,7 @@
+# Servidor phantom: se instala SOBRE el entorno de PyTorch ya existente
+# (el mismo que uso modeling/final_training; torch 2.11.0 segun environment.txt).
+#   pip install -r optimization/requirements-server.txt
+# Fije despues las versiones exactas obtenidas (pip freeze).
+onnx>=1.16
+onnxruntime>=1.18
+psutil>=5.9
